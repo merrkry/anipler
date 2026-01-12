@@ -30,7 +30,7 @@ Automated torrent file transfer system with Telegram bot control.
 - **Language**: Rust
 - **qBittorrent API**: `qbit-rs` crate
 - **Telegram Bot**: `frankenstein` crate
-- **Database**: SQLite with `rusqlite`
+- **Database**: SQLite with `sqlx`
 - **Transfer**: `rsync` over SSH
 
 ## Environment
