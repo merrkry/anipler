@@ -1,20 +1,19 @@
+use std::path::Path;
+
 use crate::model::{self, TorrentSource};
 
-#[derive(derive_builder::Builder)]
-#[builder(setter(into))]
 pub struct TorrentTaskInfo {
     pub hash: String,
     pub status: TorrentStatus,
+    pub content_path: String,
+    pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TorrentStatus {
     Downloading,
     Seeding,
 }
 
-#[derive(derive_builder::Builder)]
-#[builder(setter(into))]
 pub struct ArtifactInfo {
     pub hash: String,
 }

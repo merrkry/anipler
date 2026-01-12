@@ -21,13 +21,8 @@ impl StorageManager {
     pub async fn from_config(config: &DaemonConfig) -> anyhow::Result<Self> {
         let storage_path = config.storage_path.clone();
 
-        let db_url = format!(
-            "sqlite://{}",
-            config.db_path.as_ref().map_or_else(
-                || ":memory:".to_owned(),
-                |p| p.to_string_lossy().to_string()
-            )
-        );
+        let db_path = storage_path.join("storage.db");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy().to_string());
 
         let db = sqlx::SqliteConnection::connect(&db_url).await?;
 

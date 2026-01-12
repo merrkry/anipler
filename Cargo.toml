@@ -21,6 +21,7 @@ tokio = { version = "1.49.0", features = [
 	"sync",
 ] }
 tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
+url = "2.5.8"
 uuid = "1.19.0"
 
 [[bin]]
