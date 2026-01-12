@@ -43,3 +43,59 @@ Automated torrent file transfer system with Telegram bot control.
 - Seedbox → Relay download via rsync over SSH
 - Telegram: `add` command, `status` command, download notifications
 - Desktop pull command with atomic transfer + cleanup
+
+---
+
+## Module Structure (Implemented)
+
+```
+src/
+├── lib.rs              # Module declarations
+├── model.rs            # Data types (TorrentSource, TorrentTaskInfo, ArtifactInfo)
+├── config.rs           # DaemonConfig (env var loading)
+├── daemon.rs           # AniplerDaemon (main coordinator)
+├── qbit.rs             # QBitSeedbox (qBittorrent operations)
+├── storage.rs          # StorageManager (SQLite persistence)
+└── task.rs             # Task types (TorrentStatus, TorrentTaskInfo, ArtifactInfo)
+
+src/bin/
+├── daemon.rs           # Daemon entry point
+└── pull.rs             # Puller CLI entry point (stub)
+```
+
+## Data Flow: Torrent & Artifact Handling
+
+### Core Types
+
+```rust
+enum TorrentStatus { Downloading, Seeding }
+
+struct TorrentTaskInfo {
+    hash: String,
+    status: TorrentStatus,
+}
+
+struct ArtifactInfo {
+    hash: String,
+}
+```
+
+### Data Lifecycle
+
+1. **Add Torrent**: `QBitSeedbox.upload_torrent(TorrentSource)` -> `TorrentTaskInfo`
+2. **Track State**: `StorageManager.update_torrent_info([TorrentTaskInfo])`
+3. **Check Completion**: `StorageManager.list_ready_torrents()` -> transfer to relay
+4. **Artifact Storage**: `prepare_artifact_storage(hash)` -> dir for file
+5. **Archive Ready**: `mark_artifact_ready(hash)` -> `list_ready_artifacts()`
+6. **Cleanup**: `reclaim_artifact_storage(hash)` -> delete after pull
+
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `config.rs` | Done | Env var loading, storage path setup |
+| `daemon.rs` | Skeleton | `AniplerDaemon` struct, `run()` stub |
+| `model.rs` | Done | `TorrentSource` re-export, task types |
+| `qbit.rs` | Stubs | All methods `unimplemented!()` |
+| `storage.rs` | Stubs | All methods `unimplemented!()` |
+| `task.rs` | Done | Types defined with `derive_builder` |

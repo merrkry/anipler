@@ -1,12 +1,127 @@
-use crate::config::DaemonConfig;
+use std::sync::{Arc, mpsc};
+
+use tokio::task::JoinHandle;
+use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
+
+use crate::{config::DaemonConfig, qbit::QBitSeedbox, storage::StorageManager};
 
 pub struct AniplerDaemon {
     config: DaemonConfig,
+    seedbox: QBitSeedbox,
+    store: StorageManager,
 }
 
 impl AniplerDaemon {
-    #[must_use]
-    pub fn from_config(config: DaemonConfig) -> Self {
-        Self { config }
+    /// Create a new daemon instance from the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if initialization of any component fails.
+    pub async fn from_config(config: DaemonConfig) -> anyhow::Result<Arc<Self>> {
+        let seedbox = QBitSeedbox::from_config(&config);
+        let store = StorageManager::from_config(&config).await?;
+
+        let daemon = Self {
+            config,
+            seedbox,
+            store,
+        };
+
+        Ok(Arc::new(daemon))
+    }
+
+    /// Run the main event loop of the daemon.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if anything fails during starup, or an unrecoverable error occurs during runtime.
+    pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
+        let jobs_handle = self.run_jobs().await?;
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+        };
+
+        jobs_handle.await??;
+
+        Ok(())
+    }
+
+    /// Run scheduled jobs for pulling torrents status and transferring ready torrents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if job creation fails.
+    pub async fn run_jobs(
+        self: Arc<Self>,
+    ) -> anyhow::Result<JoinHandle<Result<(), JobSchedulerError>>> {
+        let pull_job = {
+            let daemon = self.clone();
+            tokio_cron_scheduler::Job::new_async_tz(
+                &self.config.pull_cron,
+                chrono::Local,
+                move |_, _| {
+                    Box::pin({
+                        let daemon = daemon.clone();
+                        async move {
+                            daemon.run_pull_job().await;
+                        }
+                    })
+                },
+            )?
+        };
+
+        let transfer_job = {
+            let daemon = self.clone();
+            tokio_cron_scheduler::Job::new_async_tz(
+                &self.config.transfer_cron,
+                chrono::Local,
+                move |_, _| {
+                    Box::pin({
+                        let daemon = daemon.clone();
+                        async move {
+                            daemon.run_transfer_job().await;
+                        }
+                    })
+                },
+            )?
+        };
+
+        let sched = JobScheduler::new().await?;
+
+        sched.shutdown_on_ctrl_c();
+
+        sched.add(pull_job).await?;
+        sched.add(transfer_job).await?;
+
+        let handle = tokio::spawn(async move { sched.start().await });
+
+        Ok(handle)
+    }
+
+    pub async fn run_pull_job(&self) {
+        match self.update_status().await {
+            Ok(()) => {
+                unimplemented!();
+            }
+            Err(e) => {
+                unimplemented!();
+            }
+        }
+    }
+
+    pub async fn run_transfer_job(&self) {
+        unimplemented!();
+    }
+
+    /// Fetch the latest torrent status from the seedbox and update the local storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if querying the seedbox or updating the storage fails.
+    pub async fn update_status(&self) -> anyhow::Result<()> {
+        let torrents = self.seedbox.query_torrents().await?;
+        self.store.update_torrent_info(&torrents).await?;
+        Ok(())
     }
 }
