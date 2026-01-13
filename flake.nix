@@ -26,6 +26,7 @@
             packages = with pkgs; [
               openssl
               pkg-config
+              rustPlatform.bindgenHook
               sqlite
             ];
 

@@ -51,8 +51,9 @@ Automated torrent file transfer system with Telegram bot control.
 ```
 src/
 ├── lib.rs              # Module declarations
-├── model.rs            # Data types (TorrentSource, TorrentTaskInfo, ArtifactInfo)
+├── model.rs            # Data types (TorrentSource re-export)
 ├── config.rs           # DaemonConfig (env var loading)
+├── error.rs            # Error types (AniplerError)
 ├── daemon.rs           # AniplerDaemon (main coordinator)
 ├── qbit.rs             # QBitSeedbox (qBittorrent operations)
 ├── storage.rs          # StorageManager (SQLite persistence)
@@ -73,6 +74,8 @@ enum TorrentStatus { Downloading, Seeding }
 struct TorrentTaskInfo {
     hash: String,
     status: TorrentStatus,
+    content_path: String,
+    name: String,
 }
 
 struct ArtifactInfo {
@@ -94,8 +97,9 @@ struct ArtifactInfo {
 | Component | Status | Notes |
 |-----------|--------|-------|
 | `config.rs` | Done | Env var loading, storage path setup |
-| `daemon.rs` | Skeleton | `AniplerDaemon` struct, `run()` stub |
-| `model.rs` | Done | `TorrentSource` re-export, task types |
-| `qbit.rs` | Stubs | All methods `unimplemented!()` |
-| `storage.rs` | Stubs | All methods `unimplemented!()` |
-| `task.rs` | Done | Types defined with `derive_builder` |
+| `daemon.rs` | Partial | `from_config`, `run`, `run_jobs`, `update_status` implemented; job handlers are stubs |
+| `error.rs` | Done | `AniplerError::InvalidApiResponse` defined |
+| `model.rs` | Done | `TorrentSource` re-export |
+| `qbit.rs` | Partial | `query_torrents` implemented; `upload_torrent` is stub |
+| `storage.rs` | Partial | `from_config` implemented; all other methods are stubs |
+| `task.rs` | Done | Types defined |

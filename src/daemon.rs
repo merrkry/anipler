@@ -55,6 +55,9 @@ impl AniplerDaemon {
     pub async fn run_jobs(
         self: Arc<Self>,
     ) -> anyhow::Result<JoinHandle<Result<(), JobSchedulerError>>> {
+        let sched = JobScheduler::new().await?;
+        sched.shutdown_on_ctrl_c();
+
         let pull_job = {
             let daemon = self.clone();
             tokio_cron_scheduler::Job::new_async_tz(
@@ -71,28 +74,27 @@ impl AniplerDaemon {
             )?
         };
 
-        let transfer_job = {
-            let daemon = self.clone();
-            tokio_cron_scheduler::Job::new_async_tz(
-                &self.config.transfer_cron,
-                chrono::Local,
-                move |_, _| {
-                    Box::pin({
-                        let daemon = daemon.clone();
-                        async move {
-                            daemon.run_transfer_job().await;
-                        }
-                    })
-                },
-            )?
-        };
-
-        let sched = JobScheduler::new().await?;
-
-        sched.shutdown_on_ctrl_c();
-
         sched.add(pull_job).await?;
-        sched.add(transfer_job).await?;
+
+        if !self.config.no_transfer {
+            let transfer_job = {
+                let daemon = self.clone();
+                tokio_cron_scheduler::Job::new_async_tz(
+                    &self.config.transfer_cron,
+                    chrono::Local,
+                    move |_, _| {
+                        Box::pin({
+                            let daemon = daemon.clone();
+                            async move {
+                                daemon.run_transfer_job().await;
+                            }
+                        })
+                    },
+                )?
+            };
+
+            sched.add(transfer_job).await?;
+        }
 
         let handle = tokio::spawn(async move { sched.start().await });
 

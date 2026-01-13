@@ -22,7 +22,11 @@ impl StorageManager {
         let storage_path = config.storage_path.clone();
 
         let db_path = storage_path.join("storage.db");
-        let db_url = format!("sqlite://{}", db_path.to_string_lossy().to_string());
+        let db_url = if config.stateless {
+            "sqlite::memory:".to_string()
+        } else {
+            format!("sqlite://{}?mode=rwc", db_path.to_string_lossy())
+        };
 
         let db = sqlx::SqliteConnection::connect(&db_url).await?;
 
