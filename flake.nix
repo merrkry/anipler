@@ -31,7 +31,7 @@
             ];
 
             env = {
-              RUST_LOG = "trace";
+              RUST_LOG = "debug";
             };
           };
         }

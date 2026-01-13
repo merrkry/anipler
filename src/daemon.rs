@@ -1,4 +1,4 @@
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 
 use tokio::task::JoinHandle;
 use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
@@ -36,13 +36,19 @@ impl AniplerDaemon {
     ///
     /// Returns an error if anything fails during starup, or an unrecoverable error occurs during runtime.
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        let jobs_handle = self.run_jobs().await?;
+        let jobs_handle = self.clone().run_jobs().await?;
+
+        self.run_pull_job().await;
 
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Received Ctrl-C, shutting down");
+            }
         };
 
         jobs_handle.await??;
+
+        log::info!("Terminated gracefully");
 
         Ok(())
     }
@@ -101,7 +107,10 @@ impl AniplerDaemon {
         Ok(handle)
     }
 
+    /// Wrapper around pulling jobs with errors catched and logged.
     pub async fn run_pull_job(&self) {
+        log::info!("Pulling torrents information from seedbox");
+
         match self.update_status().await {
             Ok(()) => {
                 unimplemented!();
@@ -112,6 +121,7 @@ impl AniplerDaemon {
         }
     }
 
+    /// Wrapper around transfer jobs with errors catched and logged.
     pub async fn run_transfer_job(&self) {
         unimplemented!();
     }
