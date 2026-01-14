@@ -52,10 +52,11 @@ Automated torrent file transfer system with Telegram bot control.
 src/
 ├── lib.rs              # Module declarations
 ├── model.rs            # Data types (TorrentSource re-export)
-├── config.rs           # DaemonConfig (env var loading)
+├── config.rs           # DaemonConfig (env var loading, SSH/rsync settings)
 ├── error.rs            # Error types (AniplerError)
 ├── daemon.rs           # AniplerDaemon (main coordinator)
 ├── qbit.rs             # QBitSeedbox (qBittorrent operations)
+├── rsync.rs            # RsyncTransmitter (rsync over SSH)
 ├── storage.rs          # StorageManager (SQLite persistence)
 └── task.rs             # Task types (TorrentStatus, TorrentTaskInfo, ArtifactInfo)
 
@@ -97,11 +98,12 @@ struct ArtifactInfo {
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| `config.rs` | Done | Env var loading, storage path setup, CLI args |
-| `daemon.rs` | Partial | `from_config`, `run`, `run_jobs`, `update_status` implemented; `run_transfer_job` is stub |
-| `error.rs` | Done | `AniplerError::InvalidApiResponse` defined |
+| `config.rs` | Done | Env var loading, storage path setup, CLI args, SSH/rsync settings |
+| `daemon.rs` | Done | `from_config`, `run`, `run_jobs`, `update_status`, `run_transfer_job` all implemented |
+| `error.rs` | Done | `AniplerError::InvalidApiResponse`, `RsyncFailed`, `SshConnectionFailed` |
 | `model.rs` | Done | `TorrentSource` re-export |
 | `qbit.rs` | Partial | `from_config`, `query_torrents` implemented; `upload_torrent` is stub |
+| `rsync.rs` | Done | `RsyncTransmitter` with dry-run support, speed limit, locking |
 | `storage.rs` | Partial | Core methods implemented: `from_config`, `init`, `earliest_import_date`, `update_torrent_info`, `list_ready_torrents`, `mark_artifact_ready`, `list_ready_artifacts`, `artifact_storage_path`, `prepare_artifact_storage`, `finalize_artifact` |
 | `task.rs` | Done | Types defined: `TorrentTaskInfo`, `TorrentStatus`, `ArtifactInfo` |
 | `bin/pull.rs` | Stub | Entry point only (`unimplemented!()`) |

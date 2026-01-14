@@ -5,11 +5,11 @@ const ENV_PREFIX: &str = "ANIPLER";
 #[derive(clap::Parser)]
 #[command(version)]
 pub struct DaemonArgs {
-    #[arg(long, default_value_t = false)]
+    #[arg(long = "dry-run", default_value_t = false)]
     dry_run: bool,
-    #[arg(long, default_value_t = false)]
+    #[arg(long = "no-transfer", default_value_t = false)]
     no_transfer: bool,
-    #[arg(long, default_value_t = false)]
+    #[arg(long = "stateless", default_value_t = false)]
     stateless: bool,
 }
 
@@ -23,6 +23,9 @@ pub struct DaemonConfig {
     pub stateless: bool,
     pub storage_path: PathBuf,
     pub transfer_cron: String,
+    pub seedbox_ssh_host: String,
+    pub seedbox_ssh_key: PathBuf,
+    pub rsync_speed_limit: Option<u32>,
 }
 
 impl DaemonConfig {
@@ -36,6 +39,11 @@ impl DaemonConfig {
         let require_var = |key: &str| {
             let key = format!("{ENV_PREFIX}_{key}");
             env::var(&key).unwrap_or_else(|_| panic!("Environment variable {key} is required"))
+        };
+
+        let option_var = |key: &str| {
+            let key = format!("{ENV_PREFIX}_{key}");
+            env::var(key).ok()
         };
 
         let dry_run = args.dry_run;
@@ -56,6 +64,14 @@ impl DaemonConfig {
 
         let transfer_cron = "* * 2 * * *".to_string();
 
+        let seedbox_ssh_host = require_var("SEEDBOX_SSH_HOST");
+        let seedbox_ssh_key: PathBuf = std::fs::canonicalize(require_var("SEEDBOX_SSH_KEY"))
+            .expect("SEEDBOX_SSH_KEY must point to a valid file");
+        let rsync_speed_limit = option_var("RSYNC_SPEED_LIMIT").map(|v| {
+            v.parse()
+                .expect("ANIPLER_RSYNC_SPEED_LIMIT must be a valid integer")
+        });
+
         Self {
             dry_run,
             pull_cron,
@@ -66,6 +82,9 @@ impl DaemonConfig {
             stateless,
             storage_path,
             transfer_cron,
+            seedbox_ssh_host,
+            seedbox_ssh_key,
+            rsync_speed_limit,
         }
     }
 }

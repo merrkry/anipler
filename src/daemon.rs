@@ -1,14 +1,19 @@
 use std::sync::Arc;
 
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
 
-use crate::{config::DaemonConfig, qbit::QBitSeedbox, storage::StorageManager};
+use crate::{
+    config::DaemonConfig, error::AniplerError, qbit::QBitSeedbox, rsync::RsyncTransmitter,
+    storage::StorageManager,
+};
 
 pub struct AniplerDaemon {
     config: DaemonConfig,
     seedbox: QBitSeedbox,
     store: StorageManager,
+    transmitter: Mutex<RsyncTransmitter>,
 }
 
 impl AniplerDaemon {
@@ -21,10 +26,13 @@ impl AniplerDaemon {
         let seedbox = QBitSeedbox::from_config(&config);
         let store = StorageManager::from_config(&config).await?;
 
+        let transmitter = RsyncTransmitter::from_config(&config);
+
         let daemon = Self {
             config,
             seedbox,
             store,
+            transmitter: Mutex::new(transmitter),
         };
 
         Ok(Arc::new(daemon))
@@ -118,7 +126,62 @@ impl AniplerDaemon {
 
     /// Wrapper around transfer jobs with errors catched and logged.
     pub async fn run_transfer_job(&self) {
-        unimplemented!();
+        log::info!("Transferring ready torrents");
+
+        match self.transfer_ready_torrents().await {
+            Ok(()) => {
+                log::info!("Transfer job completed successfully");
+            }
+            Err(e) => {
+                if matches!(
+                    e.downcast_ref::<AniplerError>(),
+                    Some(AniplerError::OverlappingTransferJob)
+                ) {
+                    log::warn!("Another transfer job is already in progress, skipping");
+                    return;
+                }
+                log::error!("Failed to transfer ready torrents: {e:?}");
+            }
+        }
+    }
+
+    /// Transfer all torrents marked as ready from seedbox to artifact storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OverlappingTransferJob` if another transfer job is in progress.
+    #[allow(clippy::significant_drop_tightening)]
+    async fn transfer_ready_torrents(&self) -> anyhow::Result<()> {
+        // Transmitter lock is held during the whole transfer job,
+        // because we rely on the status of the lock to determine if an existing job is in progress.
+        let transmitter = self
+            .transmitter
+            .try_lock()
+            // `TryLockError` "will only fail if the mutex is already locked"
+            .map_err(|_: tokio::sync::TryLockError| AniplerError::OverlappingTransferJob)?;
+
+        let ready_torrents = self.store.list_ready_torrents().await?;
+
+        let len = ready_torrents.len();
+
+        for torrent in ready_torrents {
+            let hash = &torrent.hash;
+
+            let source = torrent.content_path;
+            let dest = self
+                .store
+                .artifact_storage_path(hash)
+                .to_string_lossy()
+                .to_string();
+
+            self.store.prepare_artifact_storage(hash).await?;
+            transmitter.transfer(&source, &dest).await?;
+            self.store.mark_artifact_ready(hash).await?;
+        }
+
+        log::info!("Transferred {len} torrents");
+
+        Ok(())
     }
 
     /// Fetch the latest torrent status from the seedbox and update the local storage.
