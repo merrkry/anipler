@@ -111,14 +111,9 @@ impl AniplerDaemon {
     pub async fn run_pull_job(&self) {
         log::info!("Pulling torrents information from seedbox");
 
-        match self.update_status().await {
-            Ok(()) => {
-                unimplemented!();
-            }
-            Err(e) => {
-                unimplemented!();
-            }
-        }
+        self.update_status()
+            .await
+            .unwrap_or_else(|e| log::error!("Failed to pull torrents information: {e:?}"));
     }
 
     /// Wrapper around transfer jobs with errors catched and logged.
@@ -132,7 +127,8 @@ impl AniplerDaemon {
     ///
     /// Returns an error if querying the seedbox or updating the storage fails.
     pub async fn update_status(&self) -> anyhow::Result<()> {
-        let torrents = self.seedbox.query_torrents().await?;
+        let earliest_import_date = self.store.earliest_import_date().await?;
+        let torrents = self.seedbox.query_torrents(earliest_import_date).await?;
         self.store.update_torrent_info(&torrents).await?;
         Ok(())
     }

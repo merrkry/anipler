@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use sqlx::Connection;
 use tokio::sync::RwLock;
 
@@ -35,8 +36,14 @@ impl StorageManager {
         Ok(Self { state })
     }
 
+    /// Get the earliest import date for torrents to be managed.
+    pub async fn earliest_import_date(&self) -> anyhow::Result<DateTime<Utc>> {
+        unimplemented!();
+        todo!("Create if not exists")
+    }
+
     /// Update information about the given torrents.
-    pub async fn update_torrent_info(&self, torrents: &[TorrentTaskInfo]) -> anyhow::Result<()> {
+    pub async fn update_torrent_info(&self, _torrents: &[TorrentTaskInfo]) -> anyhow::Result<()> {
         unimplemented!();
     }
 
@@ -47,12 +54,12 @@ impl StorageManager {
     }
 
     /// Prepare storage for an artifact with the given hash.
-    pub async fn prepare_artifact_storage(&self, hash: &str) -> anyhow::Result<ArtifactInfo> {
+    pub async fn prepare_artifact_storage(&self, _hash: &str) -> anyhow::Result<ArtifactInfo> {
         unimplemented!();
     }
 
     /// Mark an artifact as ready for archival.
-    pub async fn mark_artifact_ready(&self, hash: &str) -> anyhow::Result<()> {
+    pub async fn mark_artifact_ready(&self, _hash: &str) -> anyhow::Result<()> {
         unimplemented!();
     }
 
@@ -62,7 +69,7 @@ impl StorageManager {
     }
 
     /// Reclaim storage used by the artifact with the given hash.
-    pub async fn reclaim_artifact_storage(&self, hash: &str) -> anyhow::Result<()> {
+    pub async fn reclaim_artifact_storage(&self, _hash: &str) -> anyhow::Result<()> {
         unimplemented!();
     }
 }

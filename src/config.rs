@@ -1,4 +1,3 @@
-use core::time;
 use std::{env, path::PathBuf};
 
 const ENV_PREFIX: &str = "ANIPLER";

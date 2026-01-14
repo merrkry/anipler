@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use qbit_rs::model::{Credential, GetTorrentListArg, TorrentSource};
 
 use crate::{
@@ -21,7 +22,7 @@ impl QBitSeedbox {
         Self { endpoint }
     }
 
-    pub async fn upload_torrent(&self, source: &TorrentSource) -> anyhow::Result<TorrentTaskInfo> {
+    pub async fn upload_torrent(&self, _source: &TorrentSource) -> anyhow::Result<TorrentTaskInfo> {
         unimplemented!()
     }
 
@@ -30,7 +31,10 @@ impl QBitSeedbox {
     /// # Errors
     ///
     /// Returns an error if the API request fails or the response is missing required fields in any torrent.
-    pub async fn query_torrents(&self) -> anyhow::Result<Vec<TorrentTaskInfo>> {
+    pub async fn query_torrents(
+        &self,
+        earliest_import_date: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<TorrentTaskInfo>> {
         let args = GetTorrentListArg {
             filter: None,
             category: None,
@@ -42,23 +46,30 @@ impl QBitSeedbox {
             hashes: None,
         };
 
-        self.endpoint
+        let mut ignored_count = 0;
+        let mut tracked_count = 0;
+
+        let torrents = self
+            .endpoint
             .get_torrent_list(args)
             .await?
             .into_iter()
-            .map(|t| {
-                let Some(hash) = t.hash else {
-                    return Err(AniplerError::InvalidApiResponse(
-                        "Torrent hash missing".into(),
-                    ));
-                };
+            .filter_map(|t| {
+                macro_rules! extract_filed {
+                    ($opt:expr, $field:expr) => {{
+                        let Some(value) = $opt else {
+                            return Some(Err(AniplerError::InvalidApiResponse(format!(
+                                "Missing field {} in torrent info",
+                                $field
+                            ))));
+                        };
+                        value
+                    }};
+                }
 
+                let hash = extract_filed!(t.hash, "hash");
                 let status = {
-                    let Some(progress) = t.progress else {
-                        return Err(AniplerError::InvalidApiResponse(
-                            "Torrent progress missing".into(),
-                        ));
-                    };
+                    let progress = extract_filed!(t.progress, "progress");
 
                     if progress < 1.0 {
                         TorrentStatus::Downloading
@@ -66,18 +77,8 @@ impl QBitSeedbox {
                         TorrentStatus::Seeding
                     }
                 };
-
-                let Some(content_path) = t.content_path else {
-                    return Err(AniplerError::InvalidApiResponse(
-                        "Torrent content path missing".into(),
-                    ));
-                };
-
-                let Some(name) = t.name else {
-                    return Err(AniplerError::InvalidApiResponse(
-                        "Torrent name missing".into(),
-                    ));
-                };
+                let content_path = extract_filed!(t.content_path, "content_path");
+                let name = extract_filed!(t.name, "name");
 
                 let info = TorrentTaskInfo {
                     hash,
@@ -86,9 +87,25 @@ impl QBitSeedbox {
                     name,
                 };
 
-                Ok(info)
+                let added_on = extract_filed!(t.added_on, "added_on");
+                if added_on < earliest_import_date.timestamp() {
+                    ignored_count += 1;
+                    log::trace!("Ignoring torrent: {info}");
+                    return None;
+                }
+
+                tracked_count += 1;
+                log::trace!("Tracking torrent: {info}");
+
+                Some(Ok(info))
             })
             .map(|res| res.map_err(anyhow::Error::from))
-            .collect()
+            .collect::<anyhow::Result<_>>()?;
+
+        log::debug!(
+            "Queried torrents from API: tracked {tracked_count}, ignored {ignored_count}"
+        );
+
+        Ok(torrents)
     }
 }

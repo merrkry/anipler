@@ -1,7 +1,7 @@
-use std::path::Path;
+use std::fmt::Display;
 
-use crate::model::{self, TorrentSource};
 
+#[derive(Debug)]
 pub struct TorrentTaskInfo {
     pub hash: String,
     pub status: TorrentStatus,
@@ -9,6 +9,13 @@ pub struct TorrentTaskInfo {
     pub name: String,
 }
 
+impl Display for TorrentTaskInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}:{:?})", self.hash, self.name)
+    }
+}
+
+#[derive(Debug)]
 pub enum TorrentStatus {
     Downloading,
     Seeding,
