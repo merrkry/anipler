@@ -23,6 +23,8 @@ pub struct DaemonConfig {
     pub seedbox_ssh_host: String,
     pub seedbox_ssh_key: PathBuf,
     pub rsync_speed_limit: Option<u32>,
+    pub telegram_bot_token: String,
+    pub telegram_chat_id: i64,
 }
 
 impl DaemonConfig {
@@ -43,7 +45,7 @@ impl DaemonConfig {
             env::var(key).ok()
         };
 
-        let pull_cron = "* 0 * * * *".to_string();
+        let pull_cron = "0 0 * * * *".to_string();
 
         let qbit_url = require_var("QBIT_URL")
             .parse()
@@ -57,7 +59,7 @@ impl DaemonConfig {
 
         let storage_path: PathBuf = require_var("STORAGE_PATH").into();
 
-        let transfer_cron = "* * 2 * * *".to_string();
+        let transfer_cron = "0 0 2 * * *".to_string();
 
         let seedbox_ssh_host = require_var("SEEDBOX_SSH_HOST");
         let seedbox_ssh_key: PathBuf = std::fs::canonicalize(require_var("SEEDBOX_SSH_KEY"))
@@ -66,6 +68,11 @@ impl DaemonConfig {
             v.parse()
                 .expect("ANIPLER_RSYNC_SPEED_LIMIT must be a valid integer")
         });
+
+        let telegram_bot_token = require_var("TELEGRAM_BOT_TOKEN");
+        let telegram_chat_id: i64 = require_var("TELEGRAM_CHAT_ID")
+            .parse()
+            .expect("ANIPLER_TELEGRAM_CHAT_ID must be a valid integer");
 
         Self {
             pull_cron,
@@ -79,6 +86,8 @@ impl DaemonConfig {
             seedbox_ssh_host,
             seedbox_ssh_key,
             rsync_speed_limit,
+            telegram_bot_token,
+            telegram_chat_id,
         }
     }
 }

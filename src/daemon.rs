@@ -3,13 +3,19 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
-    config::DaemonConfig, error::AniplerError, qbit::QBitSeedbox, rsync::RsyncTransmitter,
+    bot::{BotCommand, TelegramBot},
+    config::DaemonConfig,
+    error::AniplerError,
+    qbit::QBitSeedbox,
+    rsync::RsyncTransmitter,
     storage::StorageManager,
 };
 
 pub struct AniplerDaemon {
+    bot: TelegramBot,
     config: DaemonConfig,
     seedbox: QBitSeedbox,
     store: StorageManager,
@@ -28,7 +34,10 @@ impl AniplerDaemon {
 
         let transmitter = RsyncTransmitter::from_config(&config);
 
+        let bot = TelegramBot::from_config(&config);
+
         let daemon = Self {
+            bot,
             config,
             seedbox,
             store,
@@ -42,19 +51,38 @@ impl AniplerDaemon {
     ///
     /// # Errors
     ///
-    /// Returns an error if anything fails during starup, or an unrecoverable error occurs during runtime.
+    /// Returns an error if anything fails during startup, or an unrecoverable error occurs during runtime.
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
+        let cancel = CancellationToken::new();
+
         let jobs_handle = self.clone().run_jobs().await?;
 
         self.run_pull_job().await;
 
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                log::info!("Received Ctrl-C, shutting down");
-            }
-        };
+        let mut bot_handle = self.bot.run(cancel.child_token()).await?;
+
+        loop {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    log::info!("Received Ctrl-C, shutting down");
+
+                    cancel.cancel();
+
+                    break;
+                }
+                cmd = bot_handle.rx.recv() => {
+                    match cmd {
+                        Some(cmd) => self.clone().handle_command(cmd).await,
+                        None => {
+                            log::error!("Telegram bot command channel closed unexpectedly, shutting down");
+                        },
+                    }
+                }
+            };
+        }
 
         jobs_handle.await??;
+        bot_handle.handle.await?;
 
         log::info!("Terminated gracefully");
 
@@ -111,7 +139,7 @@ impl AniplerDaemon {
         Ok(handle)
     }
 
-    /// Wrapper around pulling jobs with errors catched and logged.
+    /// Wrapper around pulling jobs with errors caught and logged.
     pub async fn run_pull_job(&self) {
         log::info!("Pulling torrents information from seedbox");
 
@@ -120,7 +148,7 @@ impl AniplerDaemon {
             .unwrap_or_else(|e| log::error!("Failed to pull torrents information: {e:?}"));
     }
 
-    /// Wrapper around transfer jobs with errors catched and logged.
+    /// Wrapper around transfer jobs with errors caught and logged.
     pub async fn run_transfer_job(&self) {
         log::info!("Transferring ready torrents");
 
@@ -146,7 +174,7 @@ impl AniplerDaemon {
     /// # Errors
     ///
     /// Returns `OverlappingTransferJob` if another transfer job is in progress.
-    #[allow(clippy::significant_drop_tightening)]
+    #[allow(clippy::significant_drop_tightening)] // we want to hold lock during the whole task
     async fn transfer_ready_torrents(&self) -> anyhow::Result<()> {
         // Transmitter lock is held during the whole transfer job,
         // because we rely on the status of the lock to determine if an existing job is in progress.
@@ -192,5 +220,35 @@ impl AniplerDaemon {
         let torrents = self.seedbox.query_torrents(earliest_import_date).await?;
         self.store.update_torrent_info(&torrents).await?;
         Ok(())
+    }
+
+    pub async fn handle_command(self: Arc<Self>, cmd: BotCommand) {
+        match cmd {
+            BotCommand::PullJob => {
+                log::info!("User requested pull job via bot");
+                tokio::spawn(async move {
+                    self.run_pull_job().await;
+                });
+            }
+            BotCommand::TransferJob => {
+                log::info!("User requested transfer job via bot");
+                tokio::spawn(async move {
+                    self.run_transfer_job().await;
+                });
+            }
+            BotCommand::ReportAvailable => {
+                let result: anyhow::Result<()> = async {
+                    let torrents = self.store.list_ready_torrents().await?;
+                    let artifacts = self.store.list_ready_artifacts().await?;
+                    self.bot.report_available(&torrents, &artifacts).await?;
+                    Ok(())
+                }
+                .await;
+
+                if let Err(e) = result {
+                    log::error!("Failed to report available torrents/artifacts: {e:?}");
+                }
+            }
+        }
     }
 }

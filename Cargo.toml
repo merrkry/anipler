@@ -9,6 +9,7 @@ chrono = "0.4.42"
 clap = { version = "4.5.54", features = ["derive"] }
 derive_builder = "0.20.2"
 env_logger = "0.11.8"
+frankenstein = { version = "0.45.0", features = ["client-reqwest"] }
 log = "0.4.29"
 qbit-rs = "0.4.7"
 shell-words = "1.1.1"
@@ -27,6 +28,7 @@ tokio = { version = "1.49.0", features = [
 	"process",
 ] }
 tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
+tokio-util = "0.7.18"
 url = "2.5.8"
 uuid = "1.19.0"
 

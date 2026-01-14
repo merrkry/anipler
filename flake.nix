@@ -31,7 +31,7 @@
             ];
 
             env = {
-              RUST_LOG = "debug";
+              RUST_LOG = "info,anipler=debug";
             };
           };
         }

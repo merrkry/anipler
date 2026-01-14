@@ -6,6 +6,8 @@ Automated torrent file transfer system with Telegram bot control.
 
 ## Architecture
 
+Three machines in a relay chain:
+
 - **Seedbox**: Runs qBittorrent, downloads torrents (VPS)
 - **Relay**: Runs daemon with SQLite state, receives files via rsync over SSH (Mini PC)
 - **Puller**: Desktop CLI to transfer files from Relay to local storage
@@ -15,95 +17,70 @@ Automated torrent file transfer system with Telegram bot control.
 1. Seedbox downloads torrent to completion
 2. At scheduled time, daemon rsyncs completed files from Seedbox to Relay
 3. Daemon marks tasks as "available" in SQLite
-4. Telegram bot notifies user
+4. Telegram bot notifies user via `/report` command
 5. User runs `anipler-pull` on Puller
 6. Files rsync to Puller's local storage
 7. Files deleted from Relay atomically
 
 ## Components
 
-- `anipler-daemon`: Main daemon (qbit API + rsync + Telegram bot + SQLite)
-- `anipler-pull`: Desktop CLI to pull files from Relay
+### Daemon (anipler-daemon)
+
+Coordinates all operations:
+- Polls Telegram for commands
+- Queries qBittorrent API for torrent status
+- Runs cron jobs for pull and transfer operations
+- Manages SQLite state persistence
+- Executes rsync over SSH for file transfers
+
+### Telegram Bot
+
+Commands:
+- `/pull`: Query seedbox and update local state
+- `/transfer`: Rsync ready torrents to relay storage
+- `/report`: List available torrents and artifacts
+
+Long polling with exponential backoff (1s → 60s max) on errors. Only accepts commands from configured chat_id.
+
+### Storage
+
+SQLite database tracks:
+- Torrent info (hash, name, status, content path)
+- Artifact readiness status
+- Import dates for incremental queries
+
+## Environment
+
+- Single-user, configured via environment variables
+- SQLite for state persistence on Relay
+- SSH key authentication for rsync transfers
+
+## Module Structure
+
+```
+src/
+├── lib.rs              Module declarations
+├── model.rs            Data types
+├── config.rs           Configuration from env vars
+├── error.rs            Error types
+├── daemon.rs           Main coordinator
+├── bot.rs              Telegram bot
+├── qbit.rs             qBittorrent API client
+├── rsync.rs            rsync over SSH wrapper
+├── storage.rs          SQLite persistence
+└── task.rs             Task types
+
+src/bin/
+├── daemon.rs           Daemon entry point
+└── pull.rs             Puller CLI entry point
+```
 
 ## Tech Stack
 
 - **Language**: Rust
-- **qBittorrent API**: `qbit-rs` crate
-- **Telegram Bot**: `frankenstein` crate
-- **Database**: SQLite with `sqlx`
-- **Transfer**: `rsync` over SSH
-
-## Environment
-
-- Single-user, env vars for credentials
-- SQLite for state persistence on Relay
-
-## Current Priorities
-
-- Seedbox → Relay download via rsync over SSH
-- Telegram: `add` command, `status` command, download notifications
-- Desktop pull command with atomic transfer + cleanup
-
----
-
-## Module Structure (Implemented)
-
-```
-src/
-├── lib.rs              # Module declarations
-├── model.rs            # Data types (TorrentSource re-export)
-├── config.rs           # DaemonConfig (env var loading, SSH/rsync settings)
-├── error.rs            # Error types (AniplerError)
-├── daemon.rs           # AniplerDaemon (main coordinator)
-├── qbit.rs             # QBitSeedbox (qBittorrent operations)
-├── rsync.rs            # RsyncTransmitter (rsync over SSH)
-├── storage.rs          # StorageManager (SQLite persistence)
-└── task.rs             # Task types (TorrentStatus, TorrentTaskInfo, ArtifactInfo)
-
-src/bin/
-├── daemon.rs           # Daemon entry point
-└── pull.rs             # Puller CLI entry point (stub)
-```
-
-## Data Flow: Torrent & Artifact Handling
-
-### Core Types
-
-```rust
-enum TorrentStatus { Downloading, Seeding }
-
-struct TorrentTaskInfo {
-    hash: String,
-    status: TorrentStatus,
-    content_path: String,
-    name: String,
-}
-
-struct ArtifactInfo {
-    hash: String,
-    name: String,
-}
-```
-
-### Data Lifecycle
-
-1. **Add Torrent**: `QBitSeedbox.upload_torrent(TorrentSource)` -> `TorrentTaskInfo`
-2. **Track State**: `StorageManager.update_torrent_info([TorrentTaskInfo])`
-3. **Check Completion**: `StorageManager.list_ready_torrents()` -> transfer to relay
-4. **Artifact Storage**: `prepare_artifact_storage(hash)` -> dir for file
-5. **Archive Ready**: `mark_artifact_ready(hash)` -> `list_ready_artifacts()`
-6. **Cleanup**: `finalize_artifact(hash)` -> delete after pull
-
-## Implementation Status
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| `config.rs` | Done | Env var loading, storage path setup, CLI args, SSH/rsync settings |
-| `daemon.rs` | Done | `from_config`, `run`, `run_jobs`, `update_status`, `run_transfer_job` all implemented |
-| `error.rs` | Done | `AniplerError::InvalidApiResponse`, `RsyncFailed`, `SshConnectionFailed` |
-| `model.rs` | Done | `TorrentSource` re-export |
-| `qbit.rs` | Partial | `from_config`, `query_torrents` implemented; `upload_torrent` is stub |
-| `rsync.rs` | Done | `RsyncTransmitter` with speed limit, locking |
-| `storage.rs` | Partial | Core methods implemented: `from_config`, `init`, `earliest_import_date`, `update_torrent_info`, `list_ready_torrents`, `mark_artifact_ready`, `list_ready_artifacts`, `artifact_storage_path`, `prepare_artifact_storage`, `finalize_artifact` |
-| `task.rs` | Done | Types defined: `TorrentTaskInfo`, `TorrentStatus`, `ArtifactInfo` |
-| `bin/pull.rs` | Stub | Entry point only (`unimplemented!()`) |
+- **qBittorrent API**: qbit-rs crate
+- **Telegram Bot**: frankenstein crate (async)
+- **Database**: SQLite with sqlx
+- **Transfer**: rsync over SSH subprocess
+- **Scheduling**: tokio-cron-scheduler
+- **Async Runtime**: tokio
