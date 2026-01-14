@@ -103,7 +103,7 @@ struct ArtifactInfo {
 | `error.rs` | Done | `AniplerError::InvalidApiResponse`, `RsyncFailed`, `SshConnectionFailed` |
 | `model.rs` | Done | `TorrentSource` re-export |
 | `qbit.rs` | Partial | `from_config`, `query_torrents` implemented; `upload_torrent` is stub |
-| `rsync.rs` | Done | `RsyncTransmitter` with dry-run support, speed limit, locking |
+| `rsync.rs` | Done | `RsyncTransmitter` with speed limit, locking |
 | `storage.rs` | Partial | Core methods implemented: `from_config`, `init`, `earliest_import_date`, `update_torrent_info`, `list_ready_torrents`, `mark_artifact_ready`, `list_ready_artifacts`, `artifact_storage_path`, `prepare_artifact_storage`, `finalize_artifact` |
 | `task.rs` | Done | Types defined: `TorrentTaskInfo`, `TorrentStatus`, `ArtifactInfo` |
 | `bin/pull.rs` | Stub | Entry point only (`unimplemented!()`) |

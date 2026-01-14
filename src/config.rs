@@ -5,8 +5,6 @@ const ENV_PREFIX: &str = "ANIPLER";
 #[derive(clap::Parser)]
 #[command(version)]
 pub struct DaemonArgs {
-    #[arg(long = "dry-run", default_value_t = false)]
-    dry_run: bool,
     #[arg(long = "no-transfer", default_value_t = false)]
     no_transfer: bool,
     #[arg(long = "stateless", default_value_t = false)]
@@ -14,7 +12,6 @@ pub struct DaemonArgs {
 }
 
 pub struct DaemonConfig {
-    pub dry_run: bool,
     pub pull_cron: String,
     pub qbit_url: url::Url,
     pub qbit_username: String,
@@ -46,8 +43,6 @@ impl DaemonConfig {
             env::var(key).ok()
         };
 
-        let dry_run = args.dry_run;
-
         let pull_cron = "* 0 * * * *".to_string();
 
         let qbit_url = require_var("QBIT_URL")
@@ -73,7 +68,6 @@ impl DaemonConfig {
         });
 
         Self {
-            dry_run,
             pull_cron,
             qbit_url,
             qbit_username,

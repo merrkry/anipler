@@ -87,28 +87,24 @@ impl AniplerDaemon {
                 },
             )?
         };
-
         sched.add(pull_job).await?;
 
-        if !self.config.no_transfer {
-            let transfer_job = {
-                let daemon = self.clone();
-                tokio_cron_scheduler::Job::new_async_tz(
-                    &self.config.transfer_cron,
-                    chrono::Local,
-                    move |_, _| {
-                        Box::pin({
-                            let daemon = daemon.clone();
-                            async move {
-                                daemon.run_transfer_job().await;
-                            }
-                        })
-                    },
-                )?
-            };
-
-            sched.add(transfer_job).await?;
-        }
+        let transfer_job = {
+            let daemon = self.clone();
+            tokio_cron_scheduler::Job::new_async_tz(
+                &self.config.transfer_cron,
+                chrono::Local,
+                move |_, _| {
+                    Box::pin({
+                        let daemon = daemon.clone();
+                        async move {
+                            daemon.run_transfer_job().await;
+                        }
+                    })
+                },
+            )?
+        };
+        sched.add(transfer_job).await?;
 
         let handle = tokio::spawn(async move { sched.start().await });
 
@@ -176,7 +172,9 @@ impl AniplerDaemon {
 
             self.store.prepare_artifact_storage(hash).await?;
             transmitter.transfer(&source, &dest).await?;
-            self.store.mark_artifact_ready(hash).await?;
+            if !self.config.no_transfer {
+                self.store.mark_artifact_ready(hash).await?;
+            }
         }
 
         log::info!("Transferred {len} torrents");

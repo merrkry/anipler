@@ -16,7 +16,7 @@ impl RsyncTransmitter {
             ssh_host: config.seedbox_ssh_host.clone(),
             ssh_key_path: config.seedbox_ssh_key.to_string_lossy().to_string(),
             speed_limit: config.rsync_speed_limit,
-            dry_run: config.dry_run,
+            dry_run: config.no_transfer,
         }
     }
 
@@ -51,7 +51,7 @@ impl RsyncTransmitter {
         rsync_cmd.arg(source_arg);
         rsync_cmd.arg(dest);
 
-        log::debug!("Would execute command: {rsync_cmd:?}");
+        log::debug!("Executing command: {rsync_cmd:?}");
         if self.dry_run {
             return Ok(());
         }
