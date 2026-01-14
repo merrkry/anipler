@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-
 #[derive(Debug)]
 pub struct TorrentTaskInfo {
     pub hash: String,
@@ -23,4 +22,5 @@ pub enum TorrentStatus {
 
 pub struct ArtifactInfo {
     pub hash: String,
+    pub name: String,
 }

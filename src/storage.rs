@@ -1,21 +1,36 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use sqlx::Connection;
 use tokio::sync::RwLock;
 
 use crate::{
     config::DaemonConfig,
-    task::{ArtifactInfo, TorrentTaskInfo},
+    task::{ArtifactInfo, TorrentStatus, TorrentTaskInfo},
 };
+
+const EARLIEST_IMPORT_DATE_KEY: &str = "earliest_import_date";
+
+/// Status of a managed torrenting task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u64)]
+pub enum TaskStatus {
+    /// Torrent is being tracked (downloading).
+    Tracked = 0,
+    /// Torrent is seeding, ready for transfer to relay.
+    TorrentReady = 1,
+    /// Torrent is on relay, ready for pull.
+    ArtifactReady = 2,
+    /// Pull complete, preserve the record so that it won't be re-tracked.
+    Archived = 3,
+}
 
 pub struct StorageManager {
     state: RwLock<StorageState>,
+    storage_path: PathBuf,
 }
 
 struct StorageState {
-    storage_path: PathBuf,
-    db: sqlx::SqliteConnection,
+    db: sqlx::sqlite::SqlitePool,
 }
 
 impl StorageManager {
@@ -29,47 +44,253 @@ impl StorageManager {
             format!("sqlite://{}?mode=rwc", db_path.to_string_lossy())
         };
 
-        let db = sqlx::SqliteConnection::connect(&db_url).await?;
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect(&db_url)
+            .await?;
 
-        let state = RwLock::new(StorageState { storage_path, db });
+        let state = RwLock::new(StorageState { db });
 
-        Ok(Self { state })
+        let this = Self {
+            state,
+            storage_path,
+        };
+
+        this.init().await?;
+
+        Ok(this)
+    }
+
+    /// Initialize the storage backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database initialization fails.
+    pub async fn init(&self) -> anyhow::Result<()> {
+        sqlx::query(
+            r"
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  hash TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  content_path TEXT NOT NULL
+);
+            ",
+        )
+        .execute(&self.state.write().await.db)
+        .await?;
+
+        Ok(())
     }
 
     /// Get the earliest import date for torrents to be managed.
+    /// Current time will be recorded if not exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail.
     pub async fn earliest_import_date(&self) -> anyhow::Result<DateTime<Utc>> {
-        unimplemented!();
-        todo!("Create if not exists")
+        let state = self.state.write().await;
+
+        let record: Option<(String,)> =
+            sqlx::query_as(r"SELECT value FROM settings WHERE key = $1")
+                .bind(EARLIEST_IMPORT_DATE_KEY)
+                .fetch_optional(&state.db)
+                .await?;
+
+        if let Some((value,)) = record {
+            let datetime = DateTime::parse_from_rfc3339(&value)?.with_timezone(&Utc);
+            return Ok(datetime);
+        }
+
+        let now = Utc::now();
+        sqlx::query(
+            r"
+INSERT INTO settings (key, value)
+VALUES ($1, $2)
+ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value;
+            ",
+        )
+        .bind(EARLIEST_IMPORT_DATE_KEY)
+        .bind(now.to_rfc3339())
+        .execute(&state.db)
+        .await?;
+
+        drop(state);
+
+        Ok(now)
     }
 
     /// Update information about the given torrents.
-    pub async fn update_torrent_info(&self, _torrents: &[TorrentTaskInfo]) -> anyhow::Result<()> {
-        unimplemented!();
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail.
+    pub async fn update_torrent_info(&self, torrents: &[TorrentTaskInfo]) -> anyhow::Result<()> {
+        let state = self.state.read().await;
+
+        for t in torrents {
+            let status = match t.status {
+                TorrentStatus::Downloading => TaskStatus::Tracked,
+                TorrentStatus::Seeding => TaskStatus::TorrentReady,
+            };
+
+            sqlx::query(
+                r"
+INSERT INTO tasks (hash, name, status, content_path)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT(hash) DO UPDATE SET
+  name = EXCLUDED.name,
+  status = EXCLUDED.status,
+  content_path = EXCLUDED.content_path
+WHERE tasks.status < EXCLUDED.status
+                ",
+            )
+            .bind(&t.hash)
+            .bind(&t.name)
+            .bind(status as i64)
+            .bind(&t.content_path)
+            .execute(&state.db)
+            .await?;
+        }
+
+        drop(state);
+
+        Ok(())
     }
 
-    /// List all torrents that are ready, i.e. have finished downloading and are ready for
-    /// transmission.
+    /// List all torrents that are ready for pulling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail.
     pub async fn list_ready_torrents(&self) -> anyhow::Result<Vec<TorrentTaskInfo>> {
-        unimplemented!();
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            hash: String,
+            name: String,
+            content_path: String,
+        }
+
+        let rows = sqlx::query_as::<_, Row>(
+            r"
+SELECT hash, name, content_path
+FROM tasks
+WHERE status = $1
+            ",
+        )
+        .bind(TaskStatus::TorrentReady as i64)
+        .fetch_all(&self.state.read().await.db)
+        .await?;
+
+        let torrents = rows
+            .into_iter()
+            .map(|row| TorrentTaskInfo {
+                hash: row.hash,
+                name: row.name,
+                status: TorrentStatus::Seeding,
+                content_path: row.content_path,
+            })
+            .collect();
+
+        Ok(torrents)
     }
 
-    /// Prepare storage for an artifact with the given hash.
-    pub async fn prepare_artifact_storage(&self, _hash: &str) -> anyhow::Result<ArtifactInfo> {
-        unimplemented!();
+    /// Mark a torrent as ready for pulling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail.
+    pub async fn mark_artifact_ready(&self, hash: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r"
+UPDATE tasks
+SET status = $1
+WHERE hash = $2 AND status = $3
+            ",
+        )
+        .bind(TaskStatus::ArtifactReady as i64)
+        .bind(hash)
+        .bind(TaskStatus::TorrentReady as i64)
+        .execute(&self.state.write().await.db)
+        .await?;
+
+        Ok(())
     }
 
-    /// Mark an artifact as ready for archival.
-    pub async fn mark_artifact_ready(&self, _hash: &str) -> anyhow::Result<()> {
-        unimplemented!();
-    }
-
-    /// List all artifacts that are ready for archival.
+    /// List all artifacts that are ready for archiving.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail.
     pub async fn list_ready_artifacts(&self) -> anyhow::Result<Vec<ArtifactInfo>> {
-        unimplemented!();
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            hash: String,
+            name: String,
+        }
+
+        let rows = sqlx::query_as::<_, Row>(
+            r"
+SELECT hash, name
+FROM tasks
+WHERE status = $1
+            ",
+        )
+        .bind(TaskStatus::ArtifactReady as i64)
+        .fetch_all(&self.state.read().await.db)
+        .await?;
+
+        let artifacts = rows
+            .into_iter()
+            .map(|row| ArtifactInfo {
+                hash: row.hash,
+                name: row.name,
+            })
+            .collect();
+
+        Ok(artifacts)
     }
 
-    /// Reclaim storage used by the artifact with the given hash.
-    pub async fn reclaim_artifact_storage(&self, _hash: &str) -> anyhow::Result<()> {
-        unimplemented!();
+    /// Get the path to store artifact data for the given hash.
+    pub fn artifact_storage_path(&self, hash: &str) -> PathBuf {
+        self.storage_path.join("artifacts").join(hash)
+    }
+
+    /// Prepare the artifact storage directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if directory creation fails.
+    pub async fn prepare_artifact_storage(&self, hash: &str) -> anyhow::Result<()> {
+        tokio::fs::create_dir_all(self.artifact_storage_path(hash)).await?;
+        Ok(())
+    }
+
+    /// Mark a torrent as archived and deletes its folder.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail, or directory deletion fails.
+    pub async fn finalize_artifact(&self, hash: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r"
+UPDATE tasks
+SET status = $1
+WHERE hash = $2 AND status = $3
+            ",
+        )
+        .bind(TaskStatus::Archived as i64)
+        .bind(hash)
+        .bind(TaskStatus::ArtifactReady as i64)
+        .execute(&self.state.write().await.db)
+        .await?;
+
+        tokio::fs::remove_dir_all(self.artifact_storage_path(hash)).await?;
+
+        Ok(())
     }
 }

@@ -80,6 +80,7 @@ struct TorrentTaskInfo {
 
 struct ArtifactInfo {
     hash: String,
+    name: String,
 }
 ```
 
@@ -90,16 +91,17 @@ struct ArtifactInfo {
 3. **Check Completion**: `StorageManager.list_ready_torrents()` -> transfer to relay
 4. **Artifact Storage**: `prepare_artifact_storage(hash)` -> dir for file
 5. **Archive Ready**: `mark_artifact_ready(hash)` -> `list_ready_artifacts()`
-6. **Cleanup**: `reclaim_artifact_storage(hash)` -> delete after pull
+6. **Cleanup**: `finalize_artifact(hash)` -> delete after pull
 
 ## Implementation Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| `config.rs` | Done | Env var loading, storage path setup |
-| `daemon.rs` | Partial | `from_config`, `run`, `run_jobs`, `update_status` implemented; job handlers are stubs |
+| `config.rs` | Done | Env var loading, storage path setup, CLI args |
+| `daemon.rs` | Partial | `from_config`, `run`, `run_jobs`, `update_status` implemented; `run_transfer_job` is stub |
 | `error.rs` | Done | `AniplerError::InvalidApiResponse` defined |
 | `model.rs` | Done | `TorrentSource` re-export |
-| `qbit.rs` | Partial | `query_torrents` implemented; `upload_torrent` is stub |
-| `storage.rs` | Partial | `from_config` implemented; all other methods are stubs |
-| `task.rs` | Done | Types defined |
+| `qbit.rs` | Partial | `from_config`, `query_torrents` implemented; `upload_torrent` is stub |
+| `storage.rs` | Partial | Core methods implemented: `from_config`, `init`, `earliest_import_date`, `update_torrent_info`, `list_ready_torrents`, `mark_artifact_ready`, `list_ready_artifacts`, `artifact_storage_path`, `prepare_artifact_storage`, `finalize_artifact` |
+| `task.rs` | Done | Types defined: `TorrentTaskInfo`, `TorrentStatus`, `ArtifactInfo` |
+| `bin/pull.rs` | Stub | Entry point only (`unimplemented!()`) |

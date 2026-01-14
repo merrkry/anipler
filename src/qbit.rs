@@ -102,9 +102,7 @@ impl QBitSeedbox {
             .map(|res| res.map_err(anyhow::Error::from))
             .collect::<anyhow::Result<_>>()?;
 
-        log::debug!(
-            "Queried torrents from API: tracked {tracked_count}, ignored {ignored_count}"
-        );
+        log::debug!("Queried torrents from API: tracked {tracked_count}, ignored {ignored_count}");
 
         Ok(torrents)
     }
