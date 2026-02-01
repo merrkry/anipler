@@ -59,7 +59,7 @@ impl AniplerDaemon {
 
         self.run_pull_job().await;
 
-        let mut bot_handle = self.bot.run(cancel.child_token()).await?;
+        self.bot.run().await?;
 
         loop {
             tokio::select! {
@@ -70,19 +70,23 @@ impl AniplerDaemon {
 
                     break;
                 }
-                cmd = bot_handle.rx.recv() => {
+                cmd = self.bot.recv_command() => {
                     match cmd {
-                        Some(cmd) => self.clone().handle_command(cmd).await,
-                        None => {
+                        Ok(cmd) => self.clone().handle_command(cmd),
+                        Err(crate::bot::TelegramBotError::ChannelClosed) => {
                             log::error!("Telegram bot command channel closed unexpectedly, shutting down");
-                        },
+                            break;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to receive command: {e:?}");
+                        }
                     }
                 }
             };
         }
 
         jobs_handle.await??;
-        bot_handle.handle.await?;
+        self.bot.shutdown().await?;
 
         log::info!("Terminated gracefully");
 
@@ -222,7 +226,7 @@ impl AniplerDaemon {
         Ok(())
     }
 
-    pub async fn handle_command(self: Arc<Self>, cmd: BotCommand) {
+    pub fn handle_command(self: Arc<Self>, cmd: BotCommand) {
         match cmd {
             BotCommand::PullJob => {
                 log::info!("User requested pull job via bot");
@@ -237,17 +241,19 @@ impl AniplerDaemon {
                 });
             }
             BotCommand::ReportAvailable => {
-                let result: anyhow::Result<()> = async {
-                    let torrents = self.store.list_ready_torrents().await?;
-                    let artifacts = self.store.list_ready_artifacts().await?;
-                    self.bot.report_available(&torrents, &artifacts).await?;
-                    Ok(())
-                }
-                .await;
+                tokio::spawn(async move {
+                    let result: anyhow::Result<()> = async {
+                        let torrents = self.store.list_ready_torrents().await?;
+                        let artifacts = self.store.list_ready_artifacts().await?;
+                        self.bot.report_available(&torrents, &artifacts).await?;
+                        Ok(())
+                    }
+                    .await;
 
-                if let Err(e) = result {
-                    log::error!("Failed to report available torrents/artifacts: {e:?}");
-                }
+                    if let Err(e) = result {
+                        log::error!("Failed to report available torrents/artifacts: {e:?}");
+                    }
+                });
             }
         }
     }

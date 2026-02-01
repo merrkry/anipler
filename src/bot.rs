@@ -6,6 +6,8 @@ use frankenstein::{
     types::{BotCommandScope, BotCommandScopeChat, Message},
     updates::UpdateContent,
 };
+use thiserror::Error;
+use tokio::sync::Mutex;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -37,9 +39,26 @@ impl BotCommand {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum TelegramBotError {
+    #[error("bot not running")]
+    NotRunning,
+    #[error("command channel closed")]
+    ChannelClosed,
+    #[error("shutdown failed: {0}")]
+    ShutdownFailed(anyhow::Error),
+}
+
+struct State {
+    handle: JoinHandle<()>,
+    cancel: CancellationToken,
+}
+
 pub struct TelegramBot {
     bot: Arc<frankenstein::client_reqwest::Bot>,
     chat_id: i64,
+    rx: Mutex<Option<mpsc::Receiver<BotCommand>>>,
+    state: Mutex<Option<State>>,
 }
 
 impl TelegramBot {
@@ -49,18 +68,25 @@ impl TelegramBot {
             &config.telegram_bot_token,
         ));
         let chat_id = config.telegram_chat_id;
-        Self { bot, chat_id }
+        Self {
+            bot,
+            chat_id,
+            rx: Mutex::new(None),
+            state: Mutex::new(None),
+        }
     }
 
     /// Run the main event loop of the Telegram bot in background task.
-    pub async fn run(&self, cancel: CancellationToken) -> anyhow::Result<BotHandle> {
+    pub async fn run(&self) -> anyhow::Result<()> {
         self.register_commands().await?;
 
+        let cancel = CancellationToken::new();
         let (tx, rx) = mpsc::channel(16);
 
         let handle = {
             let bot = self.bot.clone();
             let chat_id = self.chat_id;
+            let cancel = cancel.clone();
 
             let mut update_params = GetUpdatesParams::builder()
                 .allowed_updates(vec![frankenstein::types::AllowedUpdate::Message])
@@ -111,7 +137,44 @@ impl TelegramBot {
             })
         };
 
-        Ok(BotHandle { handle, rx })
+        *self.state.lock().await = Some(State { handle, cancel });
+        *self.rx.lock().await = Some(rx);
+
+        Ok(())
+    }
+
+    pub async fn recv_command(&self) -> Result<BotCommand, TelegramBotError> {
+        self.rx
+            .lock()
+            .await
+            .as_mut()
+            .ok_or(TelegramBotError::NotRunning)?
+            .recv()
+            .await
+            .ok_or(TelegramBotError::ChannelClosed)
+    }
+
+    pub async fn shutdown(&self) -> Result<(), TelegramBotError> {
+        let state = self
+            .state
+            .lock()
+            .await
+            .take()
+            .ok_or(TelegramBotError::NotRunning)?;
+
+        self.rx
+            .lock()
+            .await
+            .take()
+            // SAFETY: `rx` should be filled in `run()` and be taken here,
+            // keeping the same state as `state`.
+            .expect("rx should be available when bot is running");
+
+        state.cancel.cancel();
+        state
+            .handle
+            .await
+            .map_err(|e| TelegramBotError::ShutdownFailed(e.into()))
     }
 
     async fn register_commands(&self) -> anyhow::Result<()> {
@@ -201,9 +264,4 @@ impl TelegramBot {
         self.bot.send_message(&params).await?;
         Ok(())
     }
-}
-
-pub struct BotHandle {
-    pub handle: JoinHandle<()>,
-    pub rx: mpsc::Receiver<BotCommand>,
 }
