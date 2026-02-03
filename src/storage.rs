@@ -10,6 +10,16 @@ use crate::{
 
 const EARLIEST_IMPORT_DATE_KEY: &str = "earliest_import_date";
 
+#[derive(Debug, thiserror::Error)]
+pub enum FinalizeArtifactError {
+    #[error("Artifact not found")]
+    NotFound,
+    #[error("Artifact already archived")]
+    AlreadyArchived,
+    #[error("Storage error: {0}")]
+    Storage(#[from] anyhow::Error),
+}
+
 /// Status of a managed torrenting task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
@@ -246,16 +256,24 @@ WHERE status = $1
 
         let artifacts = rows
             .into_iter()
-            .map(|row| ArtifactInfo {
-                hash: row.hash,
-                name: row.name,
+            .map(|row| {
+                let path = self
+                    .artifact_storage_path(&row.hash)
+                    .to_string_lossy()
+                    .into();
+
+                ArtifactInfo {
+                    hash: row.hash,
+                    name: row.name,
+                    path,
+                }
             })
             .collect();
 
         Ok(artifacts)
     }
 
-    /// Get the path to store artifact data for the given hash.
+    /// Get the path of artifact on relay from the given hash.
     pub fn artifact_storage_path(&self, hash: &str) -> PathBuf {
         self.storage_path.join("artifacts").join(hash)
     }
@@ -275,8 +293,10 @@ WHERE status = $1
     /// # Errors
     ///
     /// Returns an error if database queries fail, or directory deletion fails.
-    pub async fn finalize_artifact(&self, hash: &str) -> anyhow::Result<()> {
-        sqlx::query(
+    pub async fn finalize_artifact(&self, hash: &str) -> Result<(), FinalizeArtifactError> {
+        tracing::info!(hash = %hash, "Finalizing artifact");
+
+        let result = sqlx::query(
             r"
 UPDATE tasks
 SET status = $1
@@ -287,9 +307,35 @@ WHERE hash = $2 AND status = $3
         .bind(hash)
         .bind(TaskStatus::ArtifactReady as i64)
         .execute(&self.state.write().await.db)
-        .await?;
+        .await
+        .map_err(|e| FinalizeArtifactError::Storage(anyhow::anyhow!(e)))?;
 
-        tokio::fs::remove_dir_all(self.artifact_storage_path(hash)).await?;
+        if result.rows_affected() == 0 {
+            let already_archived = sqlx::query(
+                r"
+SELECT 1 FROM tasks WHERE hash = $1 AND status = $2
+                ",
+            )
+            .bind(hash)
+            .bind(TaskStatus::Archived as i64)
+            .fetch_optional(&self.state.write().await.db)
+            .await
+            .map_err(|e| FinalizeArtifactError::Storage(anyhow::anyhow!(e)))?
+            .is_some();
+
+            return if already_archived {
+                Err(FinalizeArtifactError::AlreadyArchived)
+            } else {
+                Err(FinalizeArtifactError::NotFound)
+            };
+        }
+
+        let path = self.artifact_storage_path(hash);
+        tracing::info!(path = %path.display(), "Removing artifact storage directory");
+
+        tokio::fs::remove_dir_all(path)
+            .await
+            .map_err(|e| FinalizeArtifactError::Storage(anyhow::anyhow!(e)))?;
 
         Ok(())
     }

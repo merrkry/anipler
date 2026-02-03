@@ -64,28 +64,30 @@ src/
 ├── config.rs           Configuration from env vars
 ├── error.rs            Error types
 ├── daemon.rs           Main coordinator
+├── api.rs              HTTP API server for puller
 ├── bot.rs              Telegram bot
 ├── qbit.rs             qBittorrent API client
 ├── rsync.rs            rsync over SSH wrapper
 ├── storage.rs          SQLite persistence
+├── puller.rs           Puller library (client, config, transfer)
 └── task.rs             Task types
 
 src/bin/
-├── daemon.rs           Daemon entry point (implemented)
-└── pull.rs             Puller CLI entry point (stub: unimplemented!)
+├── daemon.rs           Daemon entry point
+└── puller.rs           Puller CLI entry point
 ```
 
 ## Implementation Status
 
-- **Daemon (anipler-daemon)**: Fully implemented entry point, coordinates all operations
-- **Puller (anipler-pull)**: Stub implementation awaiting completion
+- **Daemon (anipler-daemon)**: Fully implemented, includes HTTP API server for puller
+- **Puller (anipler-pull)**: Fully implemented CLI that fetches and transfers artifacts
 - **All core modules**: Implemented and integrated
 
 ## Development History
 
-- **Recent**: Logging migrated to tracing, Telegram bot channels internalized
-- **Features implemented**: Basic telegram integration, rsync transmission, SQLite database, cron scheduling, torrent list fetching, data flow pipeline
-- **Status**: Daemon fully operational; Puller CLI stub pending implementation
+- **Recent**: Implemented puller CLI and API server for daemon
+- **Features implemented**: Puller config with shell expansion, HTTP API for artifact listing/confirmation, rsync transfer over SSH, atomic deletion confirmation
+- **Status**: Both daemon and puller fully operational
 
 ## Tech Stack
 

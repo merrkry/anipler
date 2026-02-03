@@ -3,39 +3,50 @@ name = "anipler"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "anipler-daemon"
+path = "src/bin/daemon.rs"
+
+[[bin]]
+name = "anipler-puller"
+path = "src/bin/puller.rs"
+
 [dependencies]
-anyhow = "1.0.100"
-chrono = "0.4.43"
-clap = { version = "4.5.54", features = ["derive"] }
-derive_builder = "0.20.2"
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
-frankenstein = { version = "0.46.1", features = ["client-reqwest"] }
-qbit-rs = "0.4.7"
-shell-words = "1.1.1"
-sqlx = { version = "0.8.6", features = [
+anyhow = "1.0"
+axum = { version = "0.8", features = ["macros"] }
+chrono = "0.4"
+clap = { version = "4.5", features = ["derive"] }
+derive_builder = "0.20"
+dirs = "5.0"
+frankenstein = { version = "0.46", features = ["client-reqwest"] }
+hyper = "1.8"
+qbit-rs = "0.4"
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_with = "3.16"
+shell-words = "1.1"
+shellexpand = "3.1"
+sqlx = { version = "0.8", features = [
   "macros",
   "runtime-tokio",
   "sqlite-unbundled",
   "tls-native-tls",
 ] }
-thiserror = "2.0.18"
-tokio = { version = "1.49.0", features = [
+tap = "1.0.1"
+thiserror = "2.0"
+tokio = { version = "1.49", features = [
   "macros",
   "rt-multi-thread",
   "signal",
   "sync",
   "process",
 ] }
-tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
-tokio-util = "0.7.18"
-url = "2.5.8"
-uuid = "1.19.0"
-
-[[bin]]
-name = "anipler-daemon"
-path = "src/bin/daemon.rs"
-
-[[bin]]
-name = "anipler-pull"
-path = "src/bin/pull.rs"
+tokio-cron-scheduler = { version = "0.15", features = ["signal"] }
+tokio-util = "0.7"
+toml = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2.5"
+uuid = "1.20"

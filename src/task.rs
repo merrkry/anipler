@@ -20,7 +20,9 @@ pub enum TorrentStatus {
     Seeding,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct ArtifactInfo {
     pub hash: String,
     pub name: String,
+    pub path: String,
 }

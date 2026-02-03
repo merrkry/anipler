@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{env, net::SocketAddr, path::PathBuf};
 
 const ENV_PREFIX: &str = "ANIPLER";
 
@@ -25,6 +25,8 @@ pub struct DaemonConfig {
     pub rsync_speed_limit: Option<u32>,
     pub telegram_bot_token: String,
     pub telegram_chat_id: i64,
+    pub api_addr: SocketAddr,
+    pub api_key: String,
 }
 
 impl DaemonConfig {
@@ -74,6 +76,12 @@ impl DaemonConfig {
             .parse()
             .expect("ANIPLER_TELEGRAM_CHAT_ID must be a valid integer");
 
+        let api_addr: SocketAddr = option_var("API_ADDR")
+            .unwrap_or_else(|| "0.0.0.0:8080".to_string())
+            .parse()
+            .expect("ANIPLER_API_ADDR must be a valid socket address");
+        let api_key = require_var("API_KEY");
+
         Self {
             pull_cron,
             qbit_url,
@@ -88,6 +96,8 @@ impl DaemonConfig {
             rsync_speed_limit,
             telegram_bot_token,
             telegram_chat_id,
+            api_addr,
+            api_key,
         }
     }
 }

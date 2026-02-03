@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::{
+    api::ApiServer,
     bot::{BotCommand, TelegramBot},
     config::DaemonConfig,
     error::AniplerError,
@@ -16,10 +17,11 @@ use crate::{
 };
 
 pub struct AniplerDaemon {
+    api: ApiServer,
     bot: TelegramBot,
     config: DaemonConfig,
     seedbox: QBitSeedbox,
-    store: StorageManager,
+    store: Arc<StorageManager>,
     transmitter: Mutex<RsyncTransmitter>,
 }
 
@@ -37,6 +39,7 @@ impl AniplerDaemon {
 
         tracing::debug!("Initializing storage manager");
         let store = StorageManager::from_config(&config).await?;
+        let store_arc = Arc::new(store);
 
         tracing::debug!("Initializing rsync transmitter");
         let transmitter = RsyncTransmitter::from_config(&config);
@@ -44,11 +47,15 @@ impl AniplerDaemon {
         tracing::debug!("Initializing Telegram bot");
         let bot = TelegramBot::from_config(&config);
 
+        tracing::debug!("Initializing API server");
+        let api = ApiServer::from_config(&config, store_arc.clone());
+
         let daemon = Self {
+            api,
             bot,
             config,
             seedbox,
-            store,
+            store: store_arc,
             transmitter: Mutex::new(transmitter),
         };
 
@@ -73,6 +80,9 @@ impl AniplerDaemon {
 
         tracing::info!("Daemon main loop started");
 
+        let mut api_handle = self.api.run(cancel.clone())?;
+        let mut api_exited = false;
+
         loop {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
@@ -87,6 +97,7 @@ impl AniplerDaemon {
                         Ok(cmd) => self.clone().handle_command(cmd),
                         Err(crate::bot::TelegramBotError::ChannelClosed) => {
                             tracing::error!(reason = "channel_closed", "Telegram bot command channel closed unexpectedly, shutting down");
+                            cancel.cancel();
                             break;
                         }
                         Err(e) => {
@@ -94,7 +105,36 @@ impl AniplerDaemon {
                         }
                     }
                 }
+                res = &mut api_handle => {
+                    api_exited = true;
+                    match res {
+                        Ok(Ok(())) => {
+                            // SAFETY: the first `Ok()` indicates future completes successfully,
+                            // the second `Ok()` indicates axum returns no error,
+                            // which further indicates graceful shutdown triggered by cancel token.
+                            // However, on shutdown signal, we trigger cancel token and break this
+                            // loop, `select!` should not be called again.
+                            unreachable!("Main loop continued after shutdown signal");
+                        },
+                        Ok(Err(e)) => {
+                            tracing::error!(error = ?e, "Join failed, API server might have crashed");
+                        },
+                        Err(e) => {
+                            tracing::error!(error = ?e, "Axum server returned undocumented error");
+                        }
+                    }
+                    break;
+                }
             };
+        }
+
+        cancel.cancel();
+
+        if !api_exited {
+            let res = api_handle.await;
+            if let Err(e) = res {
+                tracing::error!(error = ?e, "API server error during shutdown");
+            }
         }
 
         jobs_handle.await??;
