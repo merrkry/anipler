@@ -8,24 +8,24 @@ anyhow = "1.0.100"
 chrono = "0.4.43"
 clap = { version = "4.5.54", features = ["derive"] }
 derive_builder = "0.20.2"
-env_logger = "0.11.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 frankenstein = { version = "0.46.1", features = ["client-reqwest"] }
-log = "0.4.29"
 qbit-rs = "0.4.7"
 shell-words = "1.1.1"
 sqlx = { version = "0.8.6", features = [
-	"macros",
-	"runtime-tokio",
-	"sqlite-unbundled",
-	"tls-native-tls",
+  "macros",
+  "runtime-tokio",
+  "sqlite-unbundled",
+  "tls-native-tls",
 ] }
 thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = [
-	"macros",
-	"rt-multi-thread",
-	"signal",
-	"sync",
-	"process",
+  "macros",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "process",
 ] }
 tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
 tokio-util = "0.7.18"

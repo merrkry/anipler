@@ -15,6 +15,8 @@ pub struct QBitSeedbox {
 
 impl QBitSeedbox {
     pub fn from_config(config: &DaemonConfig) -> Self {
+        tracing::debug!(endpoint = %config.qbit_url, "Creating qBittorrent seedbox client");
+
         let credential =
             Credential::new(config.qbit_username.clone(), config.qbit_password.clone());
         let endpoint = qbit_rs::Qbit::new(config.qbit_url.clone(), credential);
@@ -35,6 +37,8 @@ impl QBitSeedbox {
         &self,
         earliest_import_date: DateTime<Utc>,
     ) -> anyhow::Result<Vec<TorrentTaskInfo>> {
+        tracing::debug!("Querying qBittorrent API for torrents");
+
         let args = GetTorrentListArg {
             filter: None,
             category: None,
@@ -90,19 +94,23 @@ impl QBitSeedbox {
                 let added_on = extract_filed!(t.added_on, "added_on");
                 if added_on < earliest_import_date.timestamp() {
                     ignored_count += 1;
-                    log::trace!("Ignoring torrent: {info}");
+                    tracing::trace!(torrent = %info.name, hash = %info.hash, "Ignoring torrent");
                     return None;
                 }
 
                 tracked_count += 1;
-                log::trace!("Tracking torrent: {info}");
+                tracing::trace!(torrent = %info.name, hash = %info.hash, "Tracking torrent");
 
                 Some(Ok(info))
             })
             .map(|res| res.map_err(anyhow::Error::from))
             .collect::<anyhow::Result<_>>()?;
 
-        log::debug!("Queried torrents from API: tracked {tracked_count}, ignored {ignored_count}");
+        tracing::debug!(
+            tracked = tracked_count,
+            ignored = ignored_count,
+            "Queried torrents from API"
+        );
 
         Ok(torrents)
     }

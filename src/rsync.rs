@@ -12,6 +12,7 @@ pub struct RsyncTransmitter {
 
 impl RsyncTransmitter {
     pub fn from_config(config: &DaemonConfig) -> Self {
+        tracing::debug!(host = %config.seedbox_ssh_host, dry_run = config.no_transfer, "Creating rsync transmitter");
         Self {
             ssh_host: config.seedbox_ssh_host.clone(),
             ssh_key_path: config.seedbox_ssh_key.to_string_lossy().to_string(),
@@ -21,7 +22,7 @@ impl RsyncTransmitter {
     }
 
     pub async fn transfer(&self, source: &str, dest: &str) -> Result<(), AniplerError> {
-        log::info!("Transferring {source} -> {dest}");
+        tracing::info!(source = %source, dest = %dest, "Transferring files");
 
         let mut rsync_cmd = Command::new("rsync");
         rsync_cmd.args([
@@ -51,8 +52,9 @@ impl RsyncTransmitter {
         rsync_cmd.arg(source_arg);
         rsync_cmd.arg(dest);
 
-        log::debug!("Executing command: {rsync_cmd:?}");
+        tracing::debug!(command = ?rsync_cmd, "Executing rsync command");
         if self.dry_run {
+            tracing::info!(source = %source, dest = %dest, "Skipping transfer in dry_run mode");
             return Ok(());
         }
 
@@ -75,7 +77,7 @@ impl RsyncTransmitter {
                 }
             })?;
 
-        log::info!("Artifact available at: {dest}");
+        tracing::info!(dest = %dest, "Artifact available");
 
         Ok(())
     }

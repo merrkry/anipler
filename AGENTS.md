@@ -71,9 +71,21 @@ src/
 └── task.rs             Task types
 
 src/bin/
-├── daemon.rs           Daemon entry point
-└── pull.rs             Puller CLI entry point
+├── daemon.rs           Daemon entry point (implemented)
+└── pull.rs             Puller CLI entry point (stub: unimplemented!)
 ```
+
+## Implementation Status
+
+- **Daemon (anipler-daemon)**: Fully implemented entry point, coordinates all operations
+- **Puller (anipler-pull)**: Stub implementation awaiting completion
+- **All core modules**: Implemented and integrated
+
+## Development History
+
+- **Recent**: Logging migrated to tracing, Telegram bot channels internalized
+- **Features implemented**: Basic telegram integration, rsync transmission, SQLite database, cron scheduling, torrent list fetching, data flow pipeline
+- **Status**: Daemon fully operational; Puller CLI stub pending implementation
 
 ## Tech Stack
 
@@ -84,3 +96,4 @@ src/bin/
 - **Transfer**: rsync over SSH subprocess
 - **Scheduling**: tokio-cron-scheduler
 - **Async Runtime**: tokio
+- **Logging**: tracing + tracing-subscriber (structured logging)

@@ -16,6 +16,7 @@ use crate::{
     task::{ArtifactInfo, TorrentTaskInfo},
 };
 
+#[derive(Debug)]
 pub enum BotCommand {
     PullJob,
     TransferJob,
@@ -64,6 +65,7 @@ pub struct TelegramBot {
 impl TelegramBot {
     /// Create a new Telegram bot instance from the given configuration.
     pub fn from_config(config: &DaemonConfig) -> Self {
+        tracing::debug!("Creating Telegram bot instance");
         let bot = Arc::new(frankenstein::client_reqwest::Bot::new(
             &config.telegram_bot_token,
         ));
@@ -79,6 +81,7 @@ impl TelegramBot {
     /// Run the main event loop of the Telegram bot in background task.
     pub async fn run(&self) -> anyhow::Result<()> {
         self.register_commands().await?;
+        tracing::info!("Telegram bot started, listening for commands");
 
         let cancel = CancellationToken::new();
         let (tx, rx) = mpsc::channel(16);
@@ -94,7 +97,7 @@ impl TelegramBot {
 
             tokio::spawn(async move {
                 const MIN_RETRY_DELAY: Duration = Duration::from_secs(1);
-                const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
+                const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
                 let mut retry_delay = MIN_RETRY_DELAY;
 
                 loop {
@@ -108,7 +111,7 @@ impl TelegramBot {
                     };
 
                     let Ok(updates) = updates else {
-                        log::error!("Failed to get updates from Telegram");
+                        tracing::error!(error = "api_error", "Failed to get updates from Telegram");
                         tokio::time::sleep(retry_delay).await;
                         retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY);
                         continue;
@@ -133,7 +136,7 @@ impl TelegramBot {
                     }
                 }
 
-                log::debug!("Telegram bot main loop exited");
+                tracing::debug!(reason = "cancellation", "Telegram bot main loop exited");
             })
         };
 
@@ -155,6 +158,8 @@ impl TelegramBot {
     }
 
     pub async fn shutdown(&self) -> Result<(), TelegramBotError> {
+        tracing::info!("Shutting down Telegram bot");
+
         let state = self
             .state
             .lock()
@@ -174,10 +179,15 @@ impl TelegramBot {
         state
             .handle
             .await
-            .map_err(|e| TelegramBotError::ShutdownFailed(e.into()))
+            .map_err(|e| TelegramBotError::ShutdownFailed(e.into()))?;
+
+        tracing::info!("Telegram bot shut down successfully");
+        Ok(())
     }
 
     async fn register_commands(&self) -> anyhow::Result<()> {
+        tracing::info!("Registering Telegram bot commands");
+
         let pull_command = frankenstein::types::BotCommand::builder()
             .command("pull")
             .description("Pull torrents information from seedbox.")
@@ -202,28 +212,30 @@ impl TelegramBot {
 
         self.bot.set_my_commands(&params).await?;
 
+        tracing::info!("Successfully registered Telegram bot commands");
+
         Ok(())
     }
 
-    async fn handle_message(msg: &Message, rx: &mpsc::Sender<BotCommand>) {
+    async fn handle_message(msg: &Message, tx: &mpsc::Sender<BotCommand>) {
         let Some(text) = &msg.text else {
-            log::info!("Received empty message");
+            tracing::info!("Received empty message from user");
             return;
         };
 
         let cmd = BotCommand::parse(text);
 
         let Some(cmd) = cmd else {
-            log::info!("Received invalid command: {text}");
+            tracing::info!(command = %text, "Received invalid command");
             return;
         };
 
-        match rx.send(cmd).await {
+        match tx.send(cmd).await {
             Ok(()) => {
-                log::info!("Received command: {text}");
+                tracing::info!(command = %text, "Received command");
             }
             Err(e) => {
-                log::warn!("Failed to send command to handler: {e}");
+                tracing::error!(error = %e, "Failed to send command to handler");
             }
         }
     }
@@ -234,6 +246,12 @@ impl TelegramBot {
         torrents: &[TorrentTaskInfo],
         artifacts: &[ArtifactInfo],
     ) -> anyhow::Result<()> {
+        tracing::debug!(
+            torrents = torrents.len(),
+            artifacts = artifacts.len(),
+            "Generating availability report"
+        );
+
         let mut text = String::new();
 
         if !torrents.is_empty() {
@@ -259,8 +277,9 @@ impl TelegramBot {
 
         let params = SendMessageParams::builder()
             .chat_id(self.chat_id)
-            .text(text)
+            .text(&text)
             .build();
+        tracing::info!("Sending availability report to user");
         self.bot.send_message(&params).await?;
         Ok(())
     }
