@@ -79,6 +79,12 @@ impl TelegramBot {
     }
 
     /// Run the main event loop of the Telegram bot in background task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if command registration failed.
+    ///
+    /// # Panics
     pub async fn run(&self) -> anyhow::Result<()> {
         self.register_commands().await?;
         tracing::info!("Telegram bot started, listening for commands");
@@ -119,7 +125,10 @@ impl TelegramBot {
 
                     retry_delay = MIN_RETRY_DELAY;
 
-                    assert!(updates.ok); // always true accordingly to frankenstein documentation.
+                    assert!(
+                        updates.ok,
+                        "This should always be true accordingly to `frankenstein` documentation"
+                    );
 
                     for update in updates.result {
                         let UpdateContent::Message(message) = &update.content else {
@@ -146,6 +155,11 @@ impl TelegramBot {
         Ok(())
     }
 
+    /// Block and receive the next command from the Telegram bot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bot is not running or the command channel is closed.
     pub async fn recv_command(&self) -> Result<BotCommand, TelegramBotError> {
         self.rx
             .lock()
@@ -157,6 +171,15 @@ impl TelegramBot {
             .ok_or(TelegramBotError::ChannelClosed)
     }
 
+    /// Shutdown the Telegram bot gracefully.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bot is not running or joining failed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal receiver is not available when the bot is running.
     pub async fn shutdown(&self) -> Result<(), TelegramBotError> {
         tracing::info!("Shutting down Telegram bot");
 
@@ -241,6 +264,10 @@ impl TelegramBot {
     }
 
     /// Report available torrents and artifacts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if building or sending the message fails.
     pub async fn report_available(
         &self,
         torrents: &[TorrentTaskInfo],
