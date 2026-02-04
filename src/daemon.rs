@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_cron_scheduler::{JobScheduler, JobSchedulerError};
 use tokio_util::sync::CancellationToken;
@@ -10,10 +9,9 @@ use crate::{
     api::ApiServer,
     bot::{BotCommand, TelegramBot},
     config::DaemonConfig,
-    error::AniplerError,
     qbit::QBitSeedbox,
-    rsync::RsyncTransmitter,
-    storage::StorageManager,
+    rsync::{RsyncTransmitter, RsyncTransmitterError},
+    storage::{StorageManager, StorageManagerError},
 };
 
 pub struct AniplerDaemon {
@@ -22,7 +20,7 @@ pub struct AniplerDaemon {
     config: DaemonConfig,
     seedbox: QBitSeedbox,
     store: Arc<StorageManager>,
-    transmitter: Mutex<RsyncTransmitter>,
+    transmitter: RsyncTransmitter,
 }
 
 impl AniplerDaemon {
@@ -56,7 +54,7 @@ impl AniplerDaemon {
             config,
             seedbox,
             store: store_arc,
-            transmitter: Mutex::new(transmitter),
+            transmitter,
         };
 
         tracing::info!("Anipler daemon initialized successfully");
@@ -217,17 +215,13 @@ impl AniplerDaemon {
             Ok(()) => {
                 tracing::info!("Transfer job completed successfully");
             }
+            Err(AniplerDaemonError::RsyncTransfer(RsyncTransmitterError::OverlappingTransfer)) => {
+                tracing::warn!(
+                    state = "overlapping_job",
+                    "Another transfer job is already in progress, skipping"
+                );
+            }
             Err(e) => {
-                if matches!(
-                    e.downcast_ref::<AniplerError>(),
-                    Some(AniplerError::OverlappingTransferJob)
-                ) {
-                    tracing::warn!(
-                        state = "overlapping_job",
-                        "Another transfer job is already in progress, skipping"
-                    );
-                    return;
-                }
                 tracing::error!(error = ?e, "Failed to transfer ready torrents");
             }
         }
@@ -238,16 +232,9 @@ impl AniplerDaemon {
     /// # Errors
     ///
     /// Returns `OverlappingTransferJob` if another transfer job is in progress.
-    #[allow(clippy::significant_drop_tightening)] // we want to hold lock during the whole task
     #[instrument(skip(self))]
-    async fn transfer_ready_torrents(&self) -> anyhow::Result<()> {
-        // Transmitter lock is held during the whole transfer job,
-        // because we rely on the status of the lock to determine if an existing job is in progress.
-        let transmitter = self
-            .transmitter
-            .try_lock()
-            // `TryLockError` "will only fail if the mutex is already locked"
-            .map_err(|_: tokio::sync::TryLockError| AniplerError::OverlappingTransferJob)?;
+    async fn transfer_ready_torrents(&self) -> Result<(), AniplerDaemonError> {
+        let transmitter = self.transmitter.try_session()?;
 
         let ready_torrents = self.store.list_ready_torrents().await?;
         let total_count = ready_torrents.len();
@@ -279,6 +266,8 @@ impl AniplerDaemon {
         }
 
         tracing::info!(count = transferred, "Transferred all ready torrents");
+
+        drop(transmitter);
 
         Ok(())
     }
@@ -343,4 +332,14 @@ impl AniplerDaemon {
             }
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AniplerDaemonError {
+    #[error("QBit API responded with an invalid response: {0}")]
+    InvalidQBitApiResponse(String),
+    #[error("rsync transfer failed: {0}")]
+    RsyncTransfer(#[from] RsyncTransmitterError),
+    #[error("Storage manager error: {0}")]
+    Storage(#[from] StorageManagerError),
 }

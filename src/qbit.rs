@@ -1,9 +1,8 @@
 use chrono::{DateTime, Utc};
-use qbit_rs::model::{Credential, GetTorrentListArg, TorrentSource};
+use qbit_rs::model::{Credential, GetTorrentListArg};
 
 use crate::{
     config::DaemonConfig,
-    error::AniplerError,
     task::{TorrentStatus, TorrentTaskInfo},
 };
 
@@ -24,9 +23,9 @@ impl QBitSeedbox {
         Self { endpoint }
     }
 
-    pub async fn upload_torrent(&self, _source: &TorrentSource) -> anyhow::Result<TorrentTaskInfo> {
-        unimplemented!()
-    }
+    // pub async fn upload_torrent(&self, _source: &TorrentSource) -> anyhow::Result<TorrentTaskInfo> {
+    //     unimplemented!()
+    // }
 
     /// Query all torrents that should managed by the program from the seedbox.
     ///
@@ -62,10 +61,12 @@ impl QBitSeedbox {
                 macro_rules! extract_filed {
                     ($opt:expr, $field:expr) => {{
                         let Some(value) = $opt else {
-                            return Some(Err(AniplerError::InvalidApiResponse(format!(
-                                "Missing field {} in torrent info",
-                                $field
-                            ))));
+                            return Some(Err(
+                                crate::error::AniplerDaemonError::InvalidQBitApiResponse(format!(
+                                    "Missing field {} in torrent info",
+                                    $field
+                                )),
+                            ));
                         };
                         value
                     }};

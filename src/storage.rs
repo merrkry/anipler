@@ -44,7 +44,7 @@ struct StorageState {
 }
 
 impl StorageManager {
-    pub async fn from_config(config: &DaemonConfig) -> anyhow::Result<Self> {
+    pub async fn from_config(config: &DaemonConfig) -> Result<Self, StorageManagerError> {
         let storage_path = config.storage_path.clone();
 
         let db_path = storage_path.join("storage.db");
@@ -75,7 +75,7 @@ impl StorageManager {
     /// # Errors
     ///
     /// Returns an error if database initialization fails.
-    pub async fn init(&self) -> anyhow::Result<()> {
+    pub async fn init(&self) -> Result<(), StorageManagerError> {
         sqlx::query(
             r"
 CREATE TABLE IF NOT EXISTS settings (
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn earliest_import_date(&self) -> anyhow::Result<DateTime<Utc>> {
+    pub async fn earliest_import_date(&self) -> Result<DateTime<Utc>, StorageManagerError> {
         let state = self.state.write().await;
 
         let record: Option<(String,)> =
@@ -139,7 +139,7 @@ ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value;
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn update_torrent_info(&self, torrents: &[TorrentTaskInfo]) -> anyhow::Result<()> {
+    pub async fn update_torrent_info(&self, torrents: &[TorrentTaskInfo]) -> Result<(), StorageManagerError> {
         let state = self.state.read().await;
 
         for t in torrents {
@@ -177,7 +177,7 @@ WHERE tasks.status < EXCLUDED.status
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn list_ready_torrents(&self) -> anyhow::Result<Vec<TorrentTaskInfo>> {
+    pub async fn list_ready_torrents(&self) -> Result<Vec<TorrentTaskInfo>, StorageManagerError> {
         #[derive(sqlx::FromRow)]
         struct Row {
             hash: String,
@@ -214,7 +214,7 @@ WHERE status = $1
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn mark_artifact_ready(&self, hash: &str) -> anyhow::Result<()> {
+    pub async fn mark_artifact_ready(&self, hash: &str) -> Result<(), StorageManagerError> {
         sqlx::query(
             r"
 UPDATE tasks
@@ -236,7 +236,7 @@ WHERE hash = $2 AND status = $3
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn list_ready_artifacts(&self) -> anyhow::Result<Vec<ArtifactInfo>> {
+    pub async fn list_ready_artifacts(&self) -> Result<Vec<ArtifactInfo>, StorageManagerError> {
         #[derive(sqlx::FromRow)]
         struct Row {
             hash: String,
@@ -283,7 +283,7 @@ WHERE status = $1
     /// # Errors
     ///
     /// Returns an error if directory creation fails.
-    pub async fn prepare_artifact_storage(&self, hash: &str) -> anyhow::Result<()> {
+    pub async fn prepare_artifact_storage(&self, hash: &str) -> Result<(), StorageManagerError> {
         tokio::fs::create_dir_all(self.artifact_storage_path(hash)).await?;
         Ok(())
     }
@@ -339,4 +339,14 @@ SELECT 1 FROM tasks WHERE hash = $1 AND status = $2
 
         Ok(())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StorageManagerError {
+    #[error("I/O error: {0}")]
+    Io(#[from] tokio::io::Error),
+    #[error("Database error: {0}")]
+    Sqlx(#[from] sqlx::Error),
+    #[error("Parsing error: {0}")]
+    Chrono(#[from] chrono::ParseError),
 }
