@@ -79,15 +79,34 @@ src/bin/
 
 ## Implementation Status
 
-- **Daemon (anipler-daemon)**: Fully implemented, includes HTTP API server for puller
-- **Puller (anipler-pull)**: Fully implemented CLI that fetches and transfers artifacts
-- **All core modules**: Implemented and integrated
+### Completed Components
+
+| Module | Status | Description |
+|--------|--------|-------------|
+| `daemon.rs` | Complete | Main coordinator with cron scheduling, command handling |
+| `api.rs` | Complete | HTTP API server with Bearer token auth |
+| `bot.rs` | Complete | Telegram bot with long polling and commands |
+| `storage.rs` | Complete | SQLite persistence with full CRUD |
+| `rsync.rs` | Complete | rsync wrapper with SSH, speed limiting |
+| `puller.rs` | Complete | CLI library with shell expansion, transfers |
+| `config.rs` | Complete | Environment variable configuration |
+| `model.rs` | Complete | Data structures |
+| `task.rs` | Complete | Task status structures |
+| `error.rs` | Complete | Custom error types |
+
+### Incomplete Components
+
+| Module | Status | Description |
+|--------|--------|-------------|
+| `qbit.rs` | **Partial** | `upload_torrent()` is unimplemented |
+
+**Missing Feature**: `qbit::Client::upload_torrent()` at `src/qbit.rs:27` - Upload torrent files to seedbox and tag with "anipler" for tracking.
 
 ## Development History
 
 - **Recent**: Implemented puller CLI and API server for daemon
 - **Features implemented**: Puller config with shell expansion, HTTP API for artifact listing/confirmation, rsync transfer over SSH, atomic deletion confirmation
-- **Status**: Both daemon and puller fully operational
+- **Status**: Core transfer flow operational; torrent upload pending implementation
 
 ## Tech Stack
 
