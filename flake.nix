@@ -36,5 +36,15 @@
           };
         }
       );
+
+      nixosModules.default = import ./nix/nixos.nix;
+
+      packages = forAllSystems (
+        { pkgs }:
+        rec {
+          default = anipler-nightly;
+          anipler-nightly = pkgs.callPackage ./nix/package.nix { };
+        }
+      );
     };
 }
