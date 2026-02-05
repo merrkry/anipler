@@ -3,7 +3,6 @@
   rustPlatform,
   openssl,
   pkg-config,
-  rsync,
   sqlite,
 }:
 rustPlatform.buildRustPackage rec {
@@ -33,7 +32,6 @@ rustPlatform.buildRustPackage rec {
 
   buildInputs = [
     openssl
-    rsync
     sqlite
   ];
 

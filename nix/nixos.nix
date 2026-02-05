@@ -91,6 +91,10 @@ in
         ANIPLER_API_ADDR = "${cfg.listenAddr}:${toString cfg.port}";
         ANIPLER_STORAGE_PATH = cfg.workingDirectory;
       };
+      path = with pkgs; [
+        openssh
+        rsync
+      ];
     };
   };
 }
