@@ -47,7 +47,11 @@ impl DaemonConfig {
             env::var(key).ok()
         };
 
-        let pull_cron = "0 0 0/30 * * *".to_string();
+        let pull_cron = env::var(format!("{ENV_PREFIX}_PULL_CRON"))
+            .unwrap_or_else(|_| "0 0/30 * * * *".to_string());
+
+        let transfer_cron = env::var(format!("{ENV_PREFIX}_TRANSFER_CRON"))
+            .unwrap_or_else(|_| "0 0 * * * *".to_string());
 
         let qbit_url = require_var("QBIT_URL")
             .parse()
@@ -60,8 +64,6 @@ impl DaemonConfig {
         let stateless = args.stateless;
 
         let storage_path: PathBuf = require_var("STORAGE_PATH").into();
-
-        let transfer_cron = "0 0 * * * *".to_string();
 
         let seedbox_ssh_host = require_var("SEEDBOX_SSH_HOST");
         let seedbox_ssh_key: PathBuf = std::fs::canonicalize(require_var("SEEDBOX_SSH_KEY"))
