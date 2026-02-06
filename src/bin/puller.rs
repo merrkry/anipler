@@ -3,12 +3,21 @@ use anipler::puller::{self, AniplerPuller, Args, PullerConfig};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use std::{env, path::PathBuf};
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::fmt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
+    let log_level = args
+        .log_level
+        .clone()
+        .or_else(|| env::var("RUST_LOG").ok())
+        .unwrap_or_else(|| "info".to_string());
+    fmt()
+        .with_max_level(log_level.parse::<LevelFilter>()?)
+        .init();
+
     let config_path = env::var("ANIPLER_CONFIG_PATH")
         .ok()
         .map(PathBuf::from)

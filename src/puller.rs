@@ -52,6 +52,8 @@ impl PullerConfig {
 pub struct Args {
     #[arg(short, long)]
     pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub log_level: Option<String>,
 }
 
 /// Get the default configuration file path.
