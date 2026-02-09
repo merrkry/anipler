@@ -139,7 +139,10 @@ ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value;
     /// # Errors
     ///
     /// Returns an error if database queries fail.
-    pub async fn update_torrent_info(&self, torrents: &[TorrentTaskInfo]) -> Result<(), StorageManagerError> {
+    pub async fn update_torrent_info(
+        &self,
+        torrents: &[TorrentTaskInfo],
+    ) -> Result<(), StorageManagerError> {
         let state = self.state.read().await;
 
         for t in torrents {

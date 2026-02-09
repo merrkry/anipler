@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
+use shell_words;
 use tap::Pipe;
 use tokio::{process::Command, sync::Mutex};
 use url::Url;
@@ -169,16 +170,29 @@ impl AniplerPuller {
 
         let source = format!("{}:{}", self.ssh_host, artifact.path);
 
-        let mut cmd = Command::new("rsync");
-        cmd.kill_on_drop(true);
-        cmd.args(["--delete", "--partial", "--recursive", "-s"]);
-        cmd.arg("--rsh").arg("ssh");
-        cmd.arg(source);
-        cmd.arg(&self.destination);
+        let ssh_cmd = shell_words::join([
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "BatchMode=yes",
+        ]);
 
-        tracing::debug!(command = ?cmd, "Executing rsync command");
+        let mut rsync_cmd = Command::new("rsync");
+        rsync_cmd
+            .kill_on_drop(true)
+            .args(["--delete", "--partial", "--recursive", "-s"])
+            .arg("--rsh")
+            .arg(ssh_cmd)
+            .arg(source)
+            .arg(&self.destination);
 
-        let output = cmd.output().await?;
+        tracing::debug!(command = ?rsync_cmd, "Executing rsync command");
+
+        let output = rsync_cmd
+            .output()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to execute rsync command: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
