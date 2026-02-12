@@ -166,7 +166,7 @@ impl AniplerPuller {
         };
         let hash = &artifact.hash.clone();
 
-        tracing::info!(hash = %hash, artifact.name, "Transferring artifact");
+        tracing::info!(hash = %hash, name = %artifact.name, "Transferring artifact");
 
         let source = format!("{}:{}", self.ssh_host, artifact.path);
 
