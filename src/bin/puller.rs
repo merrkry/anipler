@@ -4,19 +4,19 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use std::{env, path::PathBuf};
 use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::fmt;
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let log_level = args
-        .log_level
-        .clone()
-        .or_else(|| env::var("RUST_LOG").ok())
-        .unwrap_or_else(|| "info".to_string());
-    fmt()
-        .with_max_level(log_level.parse::<LevelFilter>()?)
-        .init();
+    // CLI arg > env var > default
+    let env_filter = match args.log_level {
+        Some(l) => l.parse()?,
+        None => EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env()?,
+    };
+    fmt().with_env_filter(env_filter).init();
 
     let config_path = env::var("ANIPLER_CONFIG_PATH")
         .ok()
