@@ -33,6 +33,7 @@ sqlx = { version = "0.8", features = [
 ] }
 tap = "1.0"
 thiserror = "2.0"
+num_enum = "0.7"
 tokio = { version = "1.49", features = [
   "macros",
   "rt-multi-thread",

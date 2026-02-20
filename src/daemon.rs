@@ -7,11 +7,12 @@ use tracing::instrument;
 
 use crate::{
     api::ApiServer,
-    bot::{BotCommand, TelegramBot},
+    bot::{BotCommand, ReportTorrentInfo, TelegramBot},
     config::DaemonConfig,
     qbit::QBitSeedbox,
-    rsync::{RsyncTransmitter, RsyncTransmitterError},
-    storage::{StorageManager, StorageManagerError},
+    rsync::{RsyncTransferSession, RsyncTransmitter, RsyncTransmitterError, TransferGuard},
+    storage::{StorageManager, StorageManagerError, TaskStatus},
+    task::TransferTaskInfo,
 };
 
 pub struct AniplerDaemon {
@@ -208,68 +209,151 @@ impl AniplerDaemon {
 
     /// Wrapper around transfer jobs with errors caught and logged.
     #[instrument(skip(self))]
+    // False positive on `session`, which will be consumed in `release`.
+    #[allow(clippy::significant_drop_tightening)]
     pub async fn run_transfer_job(&self) {
         tracing::info!("Starting transfer of ready torrents");
 
-        match self.transfer_ready_torrents().await {
-            Ok(()) => {
-                tracing::info!("Transfer job completed successfully");
+        let ready_torrents = match self.store.list_ready_torrents().await {
+            Ok(ready_torrents) => ready_torrents,
+            Err(e) => {
+                tracing::error!(error = ?e, "Failed to list ready torrents");
+                return;
             }
-            Err(AniplerDaemonError::RsyncTransfer(RsyncTransmitterError::OverlappingTransfer)) => {
+        };
+        let transfer_tasks = ready_torrents
+            .iter()
+            .map(|torrent| TransferTaskInfo {
+                hash: torrent.hash.clone(),
+                source: torrent.content_path.clone(),
+                dest: self
+                    .store
+                    .artifact_storage_path(&torrent.hash)
+                    .to_string_lossy()
+                    .to_string(),
+                name: torrent.name.clone(),
+            })
+            .collect::<Vec<_>>();
+        let total_count = transfer_tasks.len();
+        tracing::info!(count = total_count, "Found ready torrents for transfer");
+
+        let session = match self.transmitter.try_session(transfer_tasks).await {
+            Ok(session) => session,
+            Err(RsyncTransmitterError::OverlappingTransfer) => {
                 tracing::warn!(
                     state = "overlapping_job",
                     "Another transfer job is already in progress, skipping"
                 );
+                return;
             }
             Err(e) => {
-                tracing::error!(error = ?e, "Failed to transfer ready torrents");
+                tracing::error!(error = ?e, "Failed to acquire transfer session");
+                return;
             }
-        }
-    }
-
-    /// Transfer all torrents marked as ready from seedbox to artifact storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns `OverlappingTransferJob` if another transfer job is in progress.
-    #[instrument(skip(self))]
-    async fn transfer_ready_torrents(&self) -> Result<(), AniplerDaemonError> {
-        let transmitter = self.transmitter.try_session()?;
-
-        let ready_torrents = self.store.list_ready_torrents().await?;
-        let total_count = ready_torrents.len();
-        tracing::info!(count = total_count, "Found ready torrents for transfer");
+        };
 
         let mut transferred = 0;
-        for torrent in ready_torrents {
-            let hash = &torrent.hash;
-            tracing::info!(torrent = %torrent.name, hash = %hash, "Starting torrent transfer");
-
-            let source = torrent.content_path;
-            let dest = self
-                .store
-                .artifact_storage_path(hash)
-                .to_string_lossy()
-                .to_string();
-
-            self.store.prepare_artifact_storage(hash).await?;
-            transmitter.transfer(&source, &dest).await?;
-            if !self.config.no_transfer {
-                self.store.mark_artifact_ready(hash).await?;
+        for task in session.tasks() {
+            match self.transfer_task(&session, task).await {
+                Ok(true) => {
+                    transferred += 1;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!(error = ?e, "Transfer task failed");
+                    self.bot.notify_transfer_failure(task, &e.to_string()).await;
+                }
             }
-            transferred += 1;
-            tracing::info!(
-                progress = transferred,
-                total = total_count,
-                "Transferred torrent"
-            );
+        }
+        session.release().await;
+
+        tracing::info!(count = transferred, "Transfer job completed successfully");
+    }
+
+    /// Execute one transfer task inside per-hash transfer guard.
+    ///
+    /// Returns `Ok(true)` when transfer finished and was marked ready,
+    /// `Ok(false)` when transfer is skipped due to state/concurrency,
+    /// and `Err(_)` for hard failures.
+    async fn transfer_task(
+        &self,
+        transmitter: &RsyncTransferSession<'_>,
+        task: &TransferTaskInfo,
+    ) -> Result<bool, AniplerDaemonError> {
+        let hash = &task.hash;
+        tracing::info!(torrent = %task.name, hash = %hash, "Starting torrent transfer");
+
+        let Some(transfer_guard) = transmitter.try_guard(hash).await? else {
+            tracing::trace!(torrent = %task.name, hash = %hash, "Skipping transfer: hash is in progress by another session");
+            return Ok(false);
+        };
+
+        if self.store.task_status_by_hash(hash).await? != Some(TaskStatus::TorrentReady) {
+            tracing::info!(torrent = %task.name, hash = %hash, "Skipping transfer: perhaps artifact is already ready");
+            transfer_guard.release().await;
+            return Ok(false);
         }
 
-        tracing::info!(count = transferred, "Transferred all ready torrents");
+        if !self.config.no_transfer {
+            self.bot.notify_transfer_start(task).await;
+        }
 
-        drop(transmitter);
+        let transfer_result = self.transfer_and_mark_ready(&transfer_guard, task).await;
+        transfer_guard.release().await;
+        transfer_result?;
+
+        if !self.config.no_transfer {
+            self.bot.notify_transfer_completion(task).await;
+        }
+
+        Ok(true)
+    }
+
+    /// Perform storage preparation, rsync transfer, and ready-state update.
+    ///
+    /// This function is expected to run under an acquired [`TransferGuard`].
+    async fn transfer_and_mark_ready(
+        &self,
+        transfer_guard: &TransferGuard<'_>,
+        task: &TransferTaskInfo,
+    ) -> Result<(), AniplerDaemonError> {
+        let hash = &task.hash;
+
+        self.store.prepare_artifact_storage(hash).await?;
+
+        // Transmitter handles `no_transfer` flag internally.
+        transfer_guard.transfer(task).await?;
+
+        if !self.config.no_transfer {
+            self.store.mark_artifact_ready(hash).await?;
+        }
 
         Ok(())
+    }
+
+    /// Build and send `/report` message to Telegram chat.
+    #[instrument(skip(self))]
+    pub async fn run_report_job(&self) {
+        let _result: anyhow::Result<()> = async {
+            let torrents = self.store.list_ready_torrents().await?;
+            let artifacts = self.store.list_ready_artifacts().await?;
+            let mut report_torrents = Vec::with_capacity(torrents.len());
+            for torrent in &torrents {
+                report_torrents.push(ReportTorrentInfo {
+                    hash: torrent.hash.clone(),
+                    name: torrent.name.clone(),
+                    transfer_state: self.transmitter.transfer_state(&torrent.hash).await,
+                });
+            }
+            self.bot
+                .report_available(&report_torrents, &artifacts)
+                .await?;
+            Ok(())
+        }
+        .await
+        .inspect_err(|e| {
+            tracing::error!(error = ?e, "Failed to run report job");
+        });
     }
 
     /// Fetch the latest torrent status from the seedbox and update the local storage.
@@ -317,17 +401,7 @@ impl AniplerDaemon {
                     "User requested report of available torrents/artifacts via bot"
                 );
                 tokio::spawn(async move {
-                    let result: anyhow::Result<()> = async {
-                        let torrents = self.store.list_ready_torrents().await?;
-                        let artifacts = self.store.list_ready_artifacts().await?;
-                        self.bot.report_available(&torrents, &artifacts).await?;
-                        Ok(())
-                    }
-                    .await;
-
-                    if let Err(e) = result {
-                        tracing::error!(error = ?e, "Failed to report available torrents/artifacts");
-                    }
+                    self.run_report_job().await;
                 });
             }
         }

@@ -22,11 +22,14 @@ Three machines in a relay chain:
 6. Files rsync to Puller's local storage
 7. Files deleted from Relay atomically
 
+In `no_transfer` (dry-run) mode, daemon skips rsync execution and ready-state updates, and does not send transfer start/completion notifications.
+
 ## Components
 
 ### Daemon (anipler-daemon)
 
 Coordinates all operations:
+
 - Polls Telegram for commands
 - Queries qBittorrent API for torrent status
 - Runs cron jobs for pull and transfer operations
@@ -36,15 +39,17 @@ Coordinates all operations:
 ### Telegram Bot
 
 Commands:
+
 - `/pull`: Query seedbox and update local state
 - `/transfer`: Rsync ready torrents to relay storage
-- `/report`: List available torrents and artifacts
+- `/report`: List available torrents/artifacts and current transfer session state
 
 Long polling with exponential backoff (1s → 60s max) on errors. Only accepts commands from configured chat_id.
 
 ### Storage
 
 SQLite database tracks:
+
 - Torrent info (hash, name, status, content path)
 - Artifact readiness status
 - Import dates for incremental queries
@@ -76,37 +81,6 @@ src/bin/
 ├── daemon.rs           Daemon entry point
 └── puller.rs           Puller CLI entry point
 ```
-
-## Implementation Status
-
-### Completed Components
-
-| Module | Status | Description |
-|--------|--------|-------------|
-| `daemon.rs` | Complete | Main coordinator with cron scheduling, command handling |
-| `api.rs` | Complete | HTTP API server with Bearer token auth |
-| `bot.rs` | Complete | Telegram bot with long polling and commands |
-| `storage.rs` | Complete | SQLite persistence with full CRUD |
-| `rsync.rs` | Complete | rsync wrapper with SSH, speed limiting |
-| `puller.rs` | Complete | CLI library with shell expansion, transfers |
-| `config.rs` | Complete | Environment variable configuration |
-| `model.rs` | Complete | Data structures |
-| `task.rs` | Complete | Task status structures |
-| `error.rs` | Complete | Custom error types |
-
-### Incomplete Components
-
-| Module | Status | Description |
-|--------|--------|-------------|
-| `qbit.rs` | **Partial** | `upload_torrent()` is unimplemented |
-
-**Missing Feature**: `qbit::Client::upload_torrent()` at `src/qbit.rs:27` - Upload torrent files to seedbox and tag with "anipler" for tracking.
-
-## Development History
-
-- **Recent**: Implemented puller CLI and API server for daemon
-- **Features implemented**: Puller config with shell expansion, HTTP API for artifact listing/confirmation, rsync transfer over SSH, atomic deletion confirmation
-- **Status**: Core transfer flow operational; torrent upload pending implementation
 
 ## Tech Stack
 

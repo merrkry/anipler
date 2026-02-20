@@ -21,8 +21,8 @@ pub enum FinalizeArtifactError {
 }
 
 /// Status of a managed torrenting task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u64)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::TryFromPrimitive)]
+#[repr(i64)]
 pub enum TaskStatus {
     /// Torrent is being tracked (downloading).
     Tracked = 0,
@@ -218,7 +218,9 @@ WHERE status = $1
     ///
     /// Returns an error if database queries fail.
     pub async fn mark_artifact_ready(&self, hash: &str) -> Result<(), StorageManagerError> {
-        sqlx::query(
+        tracing::trace!(hash = %hash, "Marking artifact as ready");
+
+        let _result = sqlx::query(
             r"
 UPDATE tasks
 SET status = $1
@@ -229,9 +231,52 @@ WHERE hash = $2 AND status = $3
         .bind(hash)
         .bind(TaskStatus::TorrentReady as i64)
         .execute(&self.state.write().await.db)
-        .await?;
+        .await
+        .inspect_err(|e| {
+            tracing::trace!(error = ?e, hash = %hash, "Failed to mark artifact as ready");
+        })?;
 
         Ok(())
+    }
+
+    /// Returns current task status for a torrent hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database queries fail or invalid task status is found.
+    pub async fn task_status_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<TaskStatus>, StorageManagerError> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            status: i64,
+        }
+
+        tracing::trace!(hash = %hash, "Querying task status by hash");
+
+        let row = sqlx::query_as::<_, Row>(
+            r"
+SELECT status
+FROM tasks
+WHERE hash = $1
+            ",
+        )
+        .bind(hash)
+        .fetch_optional(&self.state.read().await.db)
+        .await
+        .inspect_err(|e| {
+            tracing::trace!(error = ?e, hash = %hash, "Failed to query task status");
+        })?;
+
+        let status = row
+            .map(|row| {
+                TaskStatus::try_from(row.status)
+                    .map_err(|e| StorageManagerError::InvalidState(e.to_string()))
+            })
+            .transpose()?;
+
+        Ok(status)
     }
 
     /// List all artifacts that are ready for archiving.
@@ -287,7 +332,15 @@ WHERE status = $1
     ///
     /// Returns an error if directory creation fails.
     pub async fn prepare_artifact_storage(&self, hash: &str) -> Result<(), StorageManagerError> {
-        tokio::fs::create_dir_all(self.artifact_storage_path(hash)).await?;
+        let path = self.artifact_storage_path(hash);
+        tracing::trace!(hash = %hash, path = %path.display(), "Preparing artifact storage directory");
+
+        tokio::fs::create_dir_all(path)
+            .await
+            .inspect_err(|e| {
+                tracing::trace!(error = ?e, hash = %hash, "Failed to prepare artifact storage directory");
+            })?;
+
         Ok(())
     }
 
@@ -352,4 +405,6 @@ pub enum StorageManagerError {
     Sqlx(#[from] sqlx::Error),
     #[error("Parsing error: {0}")]
     Chrono(#[from] chrono::ParseError),
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
 }

@@ -13,8 +13,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::DaemonConfig,
-    task::{ArtifactInfo, TorrentTaskInfo},
+    task::{ArtifactInfo, TransferState, TransferTaskInfo},
 };
+
+#[derive(Debug)]
+pub struct ReportTorrentInfo {
+    /// Torrent hash.
+    pub hash: String,
+    /// Torrent display name.
+    pub name: String,
+    /// Current transfer state for report rendering.
+    pub transfer_state: TransferState,
+}
 
 #[derive(Debug)]
 pub enum BotCommand {
@@ -270,7 +280,7 @@ impl TelegramBot {
     /// Returns an error if building or sending the message fails.
     pub async fn report_available(
         &self,
-        torrents: &[TorrentTaskInfo],
+        torrents: &[ReportTorrentInfo],
         artifacts: &[ArtifactInfo],
     ) -> anyhow::Result<()> {
         tracing::debug!(
@@ -281,14 +291,27 @@ impl TelegramBot {
 
         let mut text = String::new();
 
-        if !torrents.is_empty() {
+        if torrents.is_empty() {
+            writeln!(text, "No torrent available")?;
+        } else {
             writeln!(text, "Ready Torrents:")?;
             for torrent in torrents {
-                writeln!(text, "\n- {} \n  ({})", torrent.name, torrent.hash)?;
+                let transfer_state = match torrent.transfer_state {
+                    TransferState::Ongoing => " (transfer in progress)",
+                    TransferState::Queued => " (queued)",
+                    TransferState::None => "",
+                };
+                writeln!(
+                    text,
+                    "\n- {}{}\n  ({})",
+                    torrent.name, transfer_state, torrent.hash
+                )?;
             }
         }
 
-        if !artifacts.is_empty() {
+        if artifacts.is_empty() {
+            writeln!(text, "No artifact available")?;
+        } else {
             if !text.is_empty() {
                 writeln!(text)?;
             }
@@ -298,15 +321,46 @@ impl TelegramBot {
             }
         }
 
-        if text.is_empty() {
-            text = "No torrents or artifacts available".to_string();
-        }
+        self.send_text(&text).await
+    }
 
+    /// Notify user that a transfer has started.
+    pub async fn notify_transfer_start(&self, task: &TransferTaskInfo) {
+        let text = format!("Transfer started:\n- {}\n  ({})", task.name, task.hash);
+        let _ = self
+            .send_text(&text)
+            .await
+            .inspect_err(|e| tracing::warn!(error = ?e, torrent = %task.name, hash = %task.hash, "Failed to notify transfer start"));
+    }
+
+    /// Notify user that a transfer has completed.
+    pub async fn notify_transfer_completion(&self, task: &TransferTaskInfo) {
+        let text = format!("Transfer completed:\n- {}\n  ({})", task.name, task.hash);
+        let _ = self
+            .send_text(&text)
+            .await
+            .inspect_err(|e| tracing::warn!(error = ?e, torrent = %task.name, hash = %task.hash, "Failed to notify transfer completion"));
+    }
+
+    /// Notify user that a transfer has failed.
+    pub async fn notify_transfer_failure(&self, task: &TransferTaskInfo, reason: &str) {
+        let text = format!(
+            "Transfer failed:\n- {}\n  ({})\nReason: {reason}",
+            task.name, task.hash
+        );
+        let _ = self
+            .send_text(&text)
+            .await
+            .inspect_err(|e| tracing::warn!(error = ?e, torrent = %task.name, hash = %task.hash, "Failed to notify transfer failure"));
+    }
+
+    /// Send plain text message to configured Telegram chat.
+    async fn send_text(&self, text: &str) -> anyhow::Result<()> {
         let params = SendMessageParams::builder()
             .chat_id(self.chat_id)
-            .text(&text)
+            .text(text)
             .build();
-        tracing::info!("Sending availability report to user");
+        tracing::trace!("Sending Telegram message");
         self.bot.send_message(&params).await?;
         Ok(())
     }
