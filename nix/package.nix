@@ -20,9 +20,10 @@ rustPlatform.buildRustPackage rec {
 
   # Alternatively we can use `importCargoLock` without the need to specify hash,
   # but it fetches EVERY dependency as separate FOD, which feels scary.
+  # TODO: migrate to crane/naersk.
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    hash = "sha256-o2uJxJlMLqAQ1SUUhu10+Sg5AmmO1t8buC+fa/lI+m0=";
+    hash = "sha256-pwnRHwwSXTszSlPrmYXid7QL1+tP9V2WKJmAno69CX8=";
   };
 
   nativeBuildInputs = [
