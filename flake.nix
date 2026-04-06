@@ -33,6 +33,11 @@
             env = {
               RUST_LOG = "info,anipler=debug";
             };
+
+            # Sqlx's proc-macros somehow failed to find libsqlite3.so.
+            shellHook = ''
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.sqlite ]}:$LD_LIBRARY_PATH"
+            '';
           };
         }
       );

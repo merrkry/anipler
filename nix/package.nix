@@ -23,7 +23,7 @@ rustPlatform.buildRustPackage rec {
   # TODO: migrate to crane/naersk.
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    hash = "sha256-pwnRHwwSXTszSlPrmYXid7QL1+tP9V2WKJmAno69CX8=";
+    hash = "sha256-QvBOa1RKdLXncxngEehUE+z1PI8FMXmNK8E+dXOnANk=";
   };
 
   nativeBuildInputs = [
