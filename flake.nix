@@ -17,26 +17,33 @@
             pkgs = import inputs.nixpkgs { inherit system; };
           }
         );
+
     in
     {
       devShells = forAllSystems (
         { pkgs }:
+        let
+          linkedLibs = with pkgs; [
+            openssl
+            sqlite
+          ];
+        in
         {
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              openssl
-              pkg-config
-              rustPlatform.bindgenHook
-              sqlite
-            ];
+            packages =
+              (with pkgs; [
+                pkg-config
+                rustPlatform.bindgenHook
+              ])
+              ++ linkedLibs;
 
             env = {
               RUST_LOG = "info,anipler=debug";
             };
 
-            # Sqlx's proc-macros somehow failed to find libsqlite3.so.
+            # Sqlx's proc-macros somehow failed to find libsqlite3.so. etc.
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.sqlite ]}:$LD_LIBRARY_PATH"
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath linkedLibs}:$LD_LIBRARY_PATH"
             '';
           };
         }
