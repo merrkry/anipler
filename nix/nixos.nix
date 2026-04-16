@@ -14,7 +14,6 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ./package.nix { };
       description = "The Anipler package to use for the service.";
     };
 
