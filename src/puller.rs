@@ -49,7 +49,7 @@ impl PullerConfig {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "puller")]
+#[command(version)]
 pub struct Args {
     #[arg(short, long)]
     pub config: Option<PathBuf>,
