@@ -1,0 +1,35 @@
+name: Nix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    name: Nix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Evaluate flake and NixOS module
+        run: |
+          set -euo pipefail
+
+          nix flake show --all-systems
+          nix eval --raw .#packages.x86_64-linux.anipler-daemon.name; echo
+          nix eval --raw .#packages.x86_64-linux.anipler-puller.name; echo
+          nix eval --raw .#nixosModules.default --apply builtins.typeOf; echo

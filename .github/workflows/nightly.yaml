@@ -1,0 +1,99 @@
+name: Nightly Release
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  nightly-release:
+    name: Nightly Prerelease
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: nightly
+      RELEASE_TARGETS: x86_64-unknown-linux-musl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+
+      - name: Prepare release metadata
+        id: release-metadata
+        run: |
+          set -euo pipefail
+
+          timestamp="$(date -u +'%Y%m%d%H%M%S')"
+          {
+            echo "timestamp=${timestamp}"
+            echo "title=nightly ${timestamp}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build static release archives
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          for target in ${RELEASE_TARGETS}; do
+            rustup target add "${target}"
+            cargo zigbuild --locked --release --target "${target}" --bins
+
+            for binary in anipler-daemon anipler-puller; do
+              staging_name="${binary}-${target}"
+              staging_dir="dist/${staging_name}"
+              mkdir -p "${staging_dir}"
+              cp "target/${target}/release/${binary}" "${staging_dir}/"
+              tar -C dist -czf "dist/${staging_name}.tar.gz" "${staging_name}"
+              rm -rf "${staging_dir}"
+            done
+          done
+
+          sha256sum dist/*.tar.gz > dist/SHA256SUMS.txt
+
+      - name: Create or update prerelease
+        env:
+          RELEASE_TIMESTAMP: ${{ steps.release-metadata.outputs.timestamp }}
+          RELEASE_TITLE: ${{ steps.release-metadata.outputs.title }}
+        run: |
+          set -euo pipefail
+
+          git tag --force "${RELEASE_TAG}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${RELEASE_TAG}"
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_TITLE}" \
+              --notes "Automated nightly prerelease for ${GITHUB_SHA} at ${RELEASE_TIMESTAMP} UTC." \
+              --prerelease \
+              --target "${GITHUB_SHA}"
+
+            gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name' \
+              | while IFS= read -r asset; do
+                  gh release delete-asset "${RELEASE_TAG}" "${asset}" --yes
+                done
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_TITLE}" \
+              --notes "Automated nightly prerelease for ${GITHUB_SHA} at ${RELEASE_TIMESTAMP} UTC." \
+              --prerelease \
+              --target "${GITHUB_SHA}"
+          fi
+
+          gh release upload "${RELEASE_TAG}" dist/* --clobber
