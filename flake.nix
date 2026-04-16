@@ -10,7 +10,6 @@
     let
       supportedSystems = [
         "x86_64-linux"
-        "aarch64-linux"
       ];
 
       forAllSystems =
@@ -18,6 +17,7 @@
         inputs.nixpkgs.lib.genAttrs supportedSystems (
           system:
           mkFlakeOutput {
+            inherit system;
             pkgs = import inputs.nixpkgs { inherit system; };
           }
         );
@@ -34,7 +34,7 @@
         };
 
       packages = forAllSystems (
-        { pkgs }:
+        { pkgs, ... }:
         let
           craneLib = inputs.crane.mkLib pkgs;
           commonArgs = {

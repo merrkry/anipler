@@ -1,2 +1,7 @@
+[tools]
+rust = "stable"
+zig = "0.16.0"
+"cargo:cargo-zigbuild" = "0.22.1"
+
 [env]
 RUST_LOG = "info,anipler=debug"
