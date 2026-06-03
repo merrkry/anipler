@@ -126,10 +126,10 @@ impl ApiServer {
     pub fn from_config(config: &DaemonConfig, store: Arc<StorageManager>) -> Self {
         let api_state = ApiState {
             store,
-            api_key: config.api_key.clone(),
+            api_key: config.api.key.clone(),
         };
 
-        let addr = config.api_addr;
+        let addr = config.api.addr;
 
         let inner = ApiServerInner { addr };
 

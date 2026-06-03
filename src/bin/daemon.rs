@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
     let init_span = tracing::span!(tracing::Level::INFO, "daemon_init").entered();
 
     let args = DaemonArgs::parse();
-    let config = DaemonConfig::from_env(&args);
+    let config = DaemonConfig::load(&args)?;
     tracing::trace!("Loaded daemon configuration");
 
     let daemon = AniplerDaemon::from_config(config).await?;

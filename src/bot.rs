@@ -77,9 +77,9 @@ impl TelegramBot {
     pub fn from_config(config: &DaemonConfig) -> Self {
         tracing::debug!("Creating Telegram bot instance");
         let bot = Arc::new(frankenstein::client_reqwest::Bot::new(
-            &config.telegram_bot_token,
+            &config.telegram.bot_token,
         ));
-        let chat_id = config.telegram_chat_id;
+        let chat_id = config.telegram.chat_id;
         Self {
             bot,
             chat_id,

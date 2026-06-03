@@ -14,11 +14,11 @@ pub struct QBitSeedbox {
 
 impl QBitSeedbox {
     pub fn from_config(config: &DaemonConfig) -> Self {
-        tracing::debug!(endpoint = %config.qbit_url, "Creating qBittorrent seedbox client");
+        tracing::debug!(endpoint = %config.qbit.url, "Creating qBittorrent seedbox client");
 
         let credential =
-            Credential::new(config.qbit_username.clone(), config.qbit_password.clone());
-        let endpoint = qbit_rs::Qbit::new(config.qbit_url.clone(), credential);
+            Credential::new(config.qbit.username.clone(), config.qbit.password.clone());
+        let endpoint = qbit_rs::Qbit::new(config.qbit.url.clone(), credential);
 
         Self { endpoint }
     }
