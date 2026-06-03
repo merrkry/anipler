@@ -9,7 +9,6 @@ let
   package = cfg.package;
   configFormat = pkgs.formats.toml { };
   configFile = configFormat.generate "anipler-daemon.toml" cfg.settings;
-  workingDirectory = cfg.settings.storage_path;
 in
 {
   options.services.anipler = {
@@ -33,6 +32,12 @@ in
       '';
     };
 
+    workingDirectory = lib.mkOption {
+      type = lib.types.path;
+      default = "/var/lib/anipler";
+      description = "Working directory for Anipler service.";
+    };
+
     user = lib.mkOption {
       type = lib.types.str;
       default = "anipler";
@@ -53,7 +58,7 @@ in
         inherit (cfg) group;
         isSystemUser = true;
         description = "Anipler service user";
-        home = workingDirectory;
+        home = cfg.workingDirectory;
         createHome = true;
         shell = pkgs.bashInteractive;
         packages = [ pkgs.rsync ];
@@ -77,6 +82,10 @@ in
         openssh
         rsync
       ];
+
+      environment = {
+        "ANIPLER_STORAGE_PATH" = cfg.workingDirectory;
+      };
     };
   };
 }
