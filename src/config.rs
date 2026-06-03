@@ -20,7 +20,7 @@ const DEFAULT_API_ADDR: &str = "127.0.0.1:8080";
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigLoadError {
     #[error("failed to load configuration: {0}")]
-    Config(#[from] ::config::ConfigError),
+    Config(String),
     #[error("failed to determine current directory: {source}")]
     CurrentDirectory { source: io::Error },
     #[error("failed to determine user config directory")]
@@ -33,6 +33,12 @@ pub enum ConfigLoadError {
     },
     #[error("{field} path {path} must point to an existing file")]
     PathValidation { field: &'static str, path: PathBuf },
+}
+
+impl From<::config::ConfigError> for ConfigLoadError {
+    fn from(error: ::config::ConfigError) -> Self {
+        Self::Config(error.to_string())
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -170,6 +176,7 @@ impl DaemonConfig {
             builder = builder.add_source(env_source);
         }
 
+        let builder = apply_env_alias_overrides(builder, DAEMON_ENV_ALIASES, None)?;
         let builder = apply_daemon_overrides(builder, overrides)?;
         let config = builder.build()?.try_deserialize::<Self>()?;
         config.validate()
@@ -190,15 +197,14 @@ impl DaemonConfig {
     #[cfg(test)]
     fn load_from_toml(
         toml: &str,
-        env_source: Option<Environment>,
+        env_source: Option<::config::Map<String, String>>,
         overrides: DaemonConfigOverrides,
     ) -> Result<Self, ConfigLoadError> {
+        let env_source = env_source.unwrap_or_default();
         let builder = daemon_builder()?
             .add_source(File::from_str(toml, FileFormat::Toml))
-            .add_source(
-                env_source
-                    .unwrap_or_else(|| Environment::default().source(Some(Default::default()))),
-            );
+            .add_source(environment_source(Some(env_source.clone())));
+        let builder = apply_env_alias_overrides(builder, DAEMON_ENV_ALIASES, Some(&env_source))?;
         let builder = apply_daemon_overrides(builder, overrides)?;
         let config = builder.build()?.try_deserialize::<Self>()?;
         config.validate()
@@ -275,6 +281,7 @@ impl PullerConfig {
             builder = builder.add_source(env_source);
         }
 
+        let builder = apply_env_alias_overrides(builder, PULLER_ENV_ALIASES, None)?;
         let config = builder.build()?.try_deserialize::<Self>()?;
         config.validate()
     }
@@ -293,6 +300,23 @@ impl PullerConfig {
         config.validate()
     }
 }
+
+const DAEMON_ENV_ALIASES: &[(&str, &str)] = &[
+    ("pull_cron", "ANIPLER_PULL_CRON"),
+    ("transfer_cron", "ANIPLER_TRANSFER_CRON"),
+    ("storage_path", "ANIPLER_STORAGE_PATH"),
+    ("seedbox.ssh_host", "ANIPLER_SEEDBOX_SSH_HOST"),
+    ("seedbox.ssh_key", "ANIPLER_SEEDBOX_SSH_KEY"),
+    ("transfer.dry_run", "ANIPLER_TRANSFER_DRY_RUN"),
+    ("telegram.bot_token", "ANIPLER_TELEGRAM_BOT_TOKEN"),
+    ("telegram.chat_id", "ANIPLER_TELEGRAM_CHAT_ID"),
+];
+
+const PULLER_ENV_ALIASES: &[(&str, &str)] = &[
+    ("api_url", "ANIPLER_API_URL"),
+    ("api_key", "ANIPLER_API_KEY"),
+    ("ssh_host", "ANIPLER_SSH_HOST"),
+];
 
 /// Get the default daemon configuration file path.
 ///
@@ -337,6 +361,30 @@ fn apply_daemon_overrides(
     Ok(builder
         .set_override_option("transfer.dry_run", overrides.dry_run)?
         .set_override_option("stateless", overrides.stateless)?)
+}
+
+fn apply_env_alias_overrides(
+    mut builder: ConfigBuilder<DefaultState>,
+    aliases: &[(&str, &str)],
+    source: Option<&::config::Map<String, String>>,
+) -> Result<ConfigBuilder<DefaultState>, ConfigLoadError> {
+    for (config_key, env_key) in aliases {
+        if let Some(value) = env_value(env_key, source) {
+            builder = builder.set_override(config_key, value)?;
+        }
+    }
+    Ok(builder)
+}
+
+fn env_value(env_key: &str, source: Option<&::config::Map<String, String>>) -> Option<String> {
+    match source {
+        Some(source) => source
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(env_key))
+            .map(|(_, value)| value.clone())
+            .filter(|value| !value.is_empty()),
+        None => env::var(env_key).ok().filter(|value| !value.is_empty()),
+    }
 }
 
 fn selected_config_file(
@@ -425,12 +473,12 @@ key = "api-key"
         )
     }
 
-    fn prefixed_env(entries: &[(&str, &str)]) -> Environment {
+    fn prefixed_env(entries: &[(&str, &str)]) -> ::config::Map<String, String> {
         let mut source = ::config::Map::new();
         for (key, value) in entries {
             source.insert((*key).to_string(), (*value).to_string());
         }
-        environment_source(Some(source))
+        source
     }
 
     #[test]
@@ -480,6 +528,34 @@ key = "api-key"
         assert!(config.stateless);
         assert!(config.transfer.is_dry_run());
         assert!(!config.transfers_enabled());
+    }
+
+    #[test]
+    fn daemon_config_applies_snake_case_env_aliases() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let ssh_key = temp_dir.path().join("id_ed25519");
+        fs::write(&ssh_key, "test-key").unwrap();
+
+        let env = prefixed_env(&[("ANIPLER_SEEDBOX_SSH_HOST", "env-seedbox.example")]);
+        let config = DaemonConfig::load_from_toml(
+            &minimal_daemon_toml(&ssh_key),
+            Some(env),
+            Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(config.seedbox.ssh_host, "env-seedbox.example");
+    }
+
+    #[test]
+    fn config_load_error_does_not_duplicate_config_source() {
+        let err = ConfigLoadError::from(::config::ConfigError::NotFound("api.key".into()));
+
+        assert_eq!(
+            err.to_string(),
+            "failed to load configuration: missing configuration field \"api.key\""
+        );
+        assert!(std::error::Error::source(&err).is_none());
     }
 
     #[test]
