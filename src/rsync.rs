@@ -97,7 +97,7 @@ pub enum TransferState {
 impl RsyncTransmitter {
     /// Build a transmitter from daemon configuration.
     pub fn from_config(config: &DaemonConfig) -> Self {
-        tracing::debug!(host = %config.seedbox_ssh_host, dry_run = config.no_transfer, "Creating rsync transmitter");
+        tracing::debug!(host = %config.seedbox.ssh_host, dry_run = config.transfer.is_dry_run(), "Creating rsync transmitter");
 
         Self {
             executor: RsyncExecutor::from_config(config),
@@ -338,12 +338,12 @@ impl TransferTrackerState {
 impl RsyncExecutor {
     /// Build rsync executor from daemon configuration.
     pub fn from_config(config: &DaemonConfig) -> Self {
-        tracing::debug!(host = %config.seedbox_ssh_host, dry_run = config.no_transfer, "Creating rsync transmitter");
+        tracing::debug!(host = %config.seedbox.ssh_host, dry_run = config.transfer.is_dry_run(), "Creating rsync transmitter");
         Self {
-            ssh_host: config.seedbox_ssh_host.clone(),
-            ssh_key_path: config.seedbox_ssh_key.to_string_lossy().to_string(),
-            speed_limit: config.rsync_speed_limit,
-            dry_run: config.no_transfer,
+            ssh_host: config.seedbox.ssh_host.clone(),
+            ssh_key_path: config.seedbox.ssh_key.to_string_lossy().to_string(),
+            speed_limit: config.transfer.speed_limit,
+            dry_run: config.transfer.is_dry_run(),
         }
     }
 

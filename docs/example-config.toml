@@ -1,0 +1,73 @@
+# Example configuration for `anipler-daemon`.
+#
+# Default values for optional fields are written in the TOML value fields.
+# Required fields use placeholder values and must be changed.
+# Optional fields where omission is meaningful are commented out.
+#
+# Environment overrides use the `ANIPLER` prefix and `_` as separator.
+# For example `ANIPLER_API__KEY` or`ANIPLER_TRANSFER__DRY_RUN`.
+
+# Local relay storage path. The daemon stores SQLite state here and writes transferred artifacts under this directory.
+# Required
+storage_path = "/var/lib/anipler"
+
+# Cron schedule for polling qBittorrent and refreshing torrent status.
+# Optional
+pull_cron = "0 0/30 * * * *"
+
+# Cron schedule for transferring completed torrents from the seedbox to relay storage.
+# Optional
+transfer_cron = "0 0 * * * *"
+
+# Uses an in-memory SQLite database instead of `storage.db` under `storage_path`.
+# Optional
+stateless = false
+
+[qbit]
+# Base URL for the qBittorrent Web API on the seedbox.
+# Required
+url = "http://127.0.0.1:8080"
+
+# qBittorrent Web API username.
+# Required
+username = "admin"
+
+# qBittorrent Web API password.
+# Required
+password = "change-me"
+
+[seedbox]
+# SSH target used by rsync when reading files from the seedbox.
+# Required
+ssh_host = "user@seedbox.example"
+
+# SSH private key used for seedbox rsync. The daemon expands this path and requires it to point to an existing file, but preserves symlink paths.
+# Required
+ssh_key = "/var/lib/anipler/.ssh/seedbox"
+
+[transfer]
+# Runs transfer planning without executing rsync, marking artifacts ready, or sending transfer start/completion notifications.
+# Optional
+dry_run = false
+
+# rsync bandwidth limit passed to `--bwlimit`. Leave unset to avoid passing `--bwlimit`; rsync interprets numeric values as KiB/s by default.
+# Optional
+# speed_limit = 1024
+
+[telegram]
+# Telegram bot token used to receive commands and send notifications.
+# Required
+bot_token = "change-me"
+
+# Telegram chat ID where bot commands and notifications are accepted.
+# Required
+chat_id = 0
+
+[api]
+# Socket address for the relay HTTP API used by `anipler-puller`.
+# Optional
+addr = "127.0.0.1:8080"
+
+# Bearer token required by the relay HTTP API.
+# Required
+key = "change-me"

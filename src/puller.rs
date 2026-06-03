@@ -1,73 +1,11 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use clap::Parser;
-use serde::Deserialize;
 use shell_words;
-use tap::Pipe;
 use tokio::{process::Command, sync::Mutex};
 use url::Url;
 
-use crate::task::ArtifactInfo;
-
-#[derive(Debug, Deserialize)]
-pub struct PullerConfig {
-    pub api_url: Url,
-    pub api_key: String,
-    pub ssh_host: String,
-    #[serde(default = "get_cwd")]
-    pub destination: PathBuf,
-}
-
-fn get_cwd() -> PathBuf {
-    std::env::current_dir().expect("Failed to get current working directory")
-}
-
-impl PullerConfig {
-    /// Load the puller configuration from a TOML file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or parsed.
-    pub fn from_path(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let mut config: Self =
-            toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse config: {e}"))?;
-
-        config.destination = config
-            .destination
-            .to_string_lossy()
-            .pipe(|s| {
-                shellexpand::full(&s)
-                    .map(String::from)
-                    .map_err(|e| anyhow::anyhow!("Failed to expand path: {e}"))
-            })?
-            .into();
-
-        Ok(config)
-    }
-}
-
-#[derive(Debug, Parser)]
-#[command(version)]
-pub struct Args {
-    #[arg(short, long)]
-    pub config: Option<PathBuf>,
-    #[arg(long)]
-    pub log_level: Option<String>,
-}
-
-/// Get the default configuration file path.
-///
-/// # Errors
-///
-/// Returns an error if the config directory cannot be determined.
-pub fn default_config_path() -> Result<PathBuf> {
-    let mut path =
-        dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Failed to get config directory"))?;
-    path.push("anipler/puller.toml");
-    Ok(path)
-}
+use crate::{config::PullerConfig, task::ArtifactInfo};
 
 pub struct AniplerPuller {
     artifacts: Mutex<Vec<ArtifactInfo>>,

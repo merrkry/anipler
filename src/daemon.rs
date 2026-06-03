@@ -294,7 +294,7 @@ impl AniplerDaemon {
             return Ok(false);
         }
 
-        if !self.config.no_transfer {
+        if self.config.transfers_enabled() {
             self.bot.notify_transfer_start(task).await;
         }
 
@@ -302,7 +302,7 @@ impl AniplerDaemon {
         transfer_guard.release().await;
         transfer_result?;
 
-        if !self.config.no_transfer {
+        if self.config.transfers_enabled() {
             self.bot.notify_transfer_completion(task).await;
         }
 
@@ -321,10 +321,10 @@ impl AniplerDaemon {
 
         self.store.prepare_artifact_storage(hash).await?;
 
-        // Transmitter handles `no_transfer` flag internally.
+        // Transmitter handles dry-run execution internally.
         transfer_guard.transfer(task).await?;
 
-        if !self.config.no_transfer {
+        if self.config.transfers_enabled() {
             self.store.mark_artifact_ready(hash).await?;
         }
 

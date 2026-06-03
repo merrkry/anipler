@@ -7,6 +7,9 @@
 let
   cfg = config.services.anipler;
   package = cfg.package;
+  configFormat = pkgs.formats.toml { };
+  configFile = configFormat.generate "anipler-daemon.toml" cfg.settings;
+  workingDirectory = cfg.settings.storage_path;
 in
 {
   options.services.anipler = {
@@ -17,32 +20,17 @@ in
       description = "The Anipler package to use for the service.";
     };
 
-    listenAddr = lib.mkOption {
-      type = lib.types.str;
-      default = "127.0.0.1";
-    };
+    settings = lib.mkOption {
+      type = configFormat.type;
+      default = {
+        storage_path = "/var/lib/anipler";
+      };
+      description = ''
+        Anipler daemon configuration written to a TOML file.
 
-    port = lib.mkOption {
-      type = lib.types.int;
-      default = 8080;
-    };
-
-    workingDirectory = lib.mkOption {
-      type = lib.types.path;
-      default = "/var/lib/anipler";
-      description = "Working directory for Anipler service.";
-    };
-
-    env = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = { };
-      description = "Environment variables for Anipler service.";
-    };
-
-    envFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = "Path to a file containing environment variables for Anipler service.";
+        Secrets should usually be provided through systemd's EnvironmentFile
+        with ANIPLER_* variables so that secrets are not stored in Nix store.
+      '';
     };
 
     user = lib.mkOption {
@@ -65,7 +53,7 @@ in
         inherit (cfg) group;
         isSystemUser = true;
         description = "Anipler service user";
-        home = cfg.workingDirectory;
+        home = workingDirectory;
         createHome = true;
         shell = pkgs.bashInteractive;
         packages = [ pkgs.rsync ];
@@ -79,17 +67,12 @@ in
       serviceConfig = {
         User = cfg.user;
         Group = cfg.group;
-        EnvironmentFile = lib.optional (cfg.envFile != null) cfg.envFile;
-        ExecStart = lib.getExe' package "anipler-daemon";
+        ExecStart = "${lib.getExe' package "anipler-daemon"} --config ${configFile}";
         Restart = "on-failure";
         RestartSec = "60s";
       };
       wantedBy = [ "multi-user.target" ];
 
-      environment = cfg.env // {
-        ANIPLER_API_ADDR = "${cfg.listenAddr}:${toString cfg.port}";
-        ANIPLER_STORAGE_PATH = cfg.workingDirectory;
-      };
       path = with pkgs; [
         openssh
         rsync

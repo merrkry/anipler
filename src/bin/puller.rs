@@ -1,34 +1,26 @@
-use anipler::puller::{self, AniplerPuller, Args, PullerConfig};
+use anipler::{
+    config::{PullerArgs, PullerConfig},
+    puller::AniplerPuller,
+};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use clap::Parser;
-use std::{env, path::PathBuf};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = PullerArgs::parse();
     // CLI arg > env var > default
     let env_filter = match args.log_level {
-        Some(l) => l.parse()?,
+        Some(ref l) => l.parse()?,
         None => EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env()?,
     };
     fmt().with_env_filter(env_filter).init();
 
-    let config_path = env::var("ANIPLER_CONFIG_PATH")
-        .ok()
-        .map(PathBuf::from)
-        .or(args.config)
-        .or_else(|| puller::default_config_path().ok())
-        .ok_or_else(|| anyhow!("Failed to determine config path"))?;
-
-    let config = PullerConfig::from_path(&config_path)
-        .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
-
-    tracing::debug!("Loaded puller configuration from {}", config_path.display());
+    let config = PullerConfig::load(&args)?;
 
     let client = AniplerPuller::from_config(config);
 
